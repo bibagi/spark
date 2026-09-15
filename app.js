@@ -1,6 +1,4 @@
-// Spark Client — Полностью автономный WebRTC через бесплатное облако PeerJS
-// Работает без собственного сервера, идеально для GitHub Pages!
-
+// Spark Client — Минималистичный монохромный WebRTC клиент через PeerJS
 const ROOM_PREFIX = 'spark-room-v1-';
 
 // Состояние
@@ -15,8 +13,7 @@ let myPeerId = '';
 let currentRoomId = '';
 let currentUsername = '';
 
-// Активные соединения PeerJS
-// peerId -> { call, conn, username, stream }
+// Активные соединения: peerId -> { call, conn, username, stream }
 const activePeers = new Map();
 
 // Элементы DOM
@@ -28,7 +25,6 @@ const roomInput = document.getElementById('room-input');
 const randomRoomBtn = document.getElementById('random-room-btn');
 const lobbyVideoPreview = document.getElementById('lobby-video-preview');
 const lobbyAvatarFallback = document.getElementById('lobby-avatar-fallback');
-const lobbyAvatarLetter = document.getElementById('lobby-avatar-letter');
 const lobbyToggleMic = document.getElementById('lobby-toggle-mic');
 const lobbyToggleCam = document.getElementById('lobby-toggle-cam');
 
@@ -71,17 +67,15 @@ if (roomParam) {
 }
 
 function generateRandomRoom() {
-  const adjectives = ['swift', 'cosmic', 'neon', 'bright', 'cyber', 'super', 'epic', 'cool'];
-  const nouns = ['hub', 'lounge', 'wave', 'spark', 'zone', 'space', 'club', 'chat'];
+  const words = ['spark', 'focus', 'node', 'mesh', 'flow', 'space', 'orbit', 'axis'];
   const num = Math.floor(100 + Math.random() * 900);
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  roomInput.value = `${adj}-${noun}-${num}`;
+  const w1 = words[Math.floor(Math.random() * words.length)];
+  const w2 = words[Math.floor(Math.random() * words.length)];
+  roomInput.value = `${w1}-${w2}-${num}`;
 }
 
 randomRoomBtn.addEventListener('click', generateRandomRoom);
 
-// Превью камеры в лобби
 async function initLobbyPreview() {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -90,13 +84,11 @@ async function initLobbyPreview() {
     });
     lobbyVideoPreview.srcObject = localStream;
   } catch (err) {
-    console.warn('Не удалось получить доступ к видео/аудио сразу:', err);
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       isVideoEnabled = false;
       updateVideoStateUI();
     } catch (e) {
-      console.warn('Медиа недоступно вовсе:', e);
       isVideoEnabled = false;
       isAudioEnabled = false;
       updateVideoStateUI();
@@ -129,16 +121,10 @@ function updateVideoStateUI() {
   } else {
     lobbyVideoPreview.style.display = 'none';
     lobbyAvatarFallback.style.display = 'flex';
-    const name = usernameInput.value.trim() || 'S';
-    lobbyAvatarLetter.textContent = name[0].toUpperCase();
   }
 }
 
-usernameInput.addEventListener('input', () => {
-  if (!isVideoEnabled) updateVideoStateUI();
-});
-
-// ==================== ВХОД В КОМНАТУ ЧЕРЕЗ PEERJS ====================
+// ==================== ВХОД В КОМНАТУ ====================
 
 joinForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -155,7 +141,7 @@ joinForm.addEventListener('submit', (e) => {
 
   currentRoomName.textContent = currentRoomId;
   localParticipantName.textContent = `${currentUsername} (Вы)`;
-  localAvatarLetter.textContent = currentUsername[0].toUpperCase();
+  localAvatarLetter.textContent = currentUsername.slice(0, 2).toUpperCase();
 
   localVideo.srcObject = localStream;
   if (!isVideoEnabled) {
@@ -164,16 +150,13 @@ joinForm.addEventListener('submit', (e) => {
   }
   localMicIndicator.style.display = isAudioEnabled ? 'none' : 'inline-block';
 
-  // Инициализируем PeerJS в комнате
   initPeerConnection();
 });
 
 function initPeerConnection() {
-  // Уникальный ID пира: префикс + комната + случайный идентификатор
   const randomSuffix = Math.random().toString(36).substring(2, 9);
   myPeerId = `${ROOM_PREFIX}${currentRoomId}-${randomSuffix}`;
 
-  // Создаем подключение к бесплатному публичному облаку PeerJS
   peer = new Peer(myPeerId, {
     debug: 1,
     config: {
@@ -184,17 +167,12 @@ function initPeerConnection() {
     }
   });
 
-  peer.on('open', (id) => {
-    console.log('⚡ Мой Spark Peer ID:', id);
-    addSystemMessage(`Вы вошли в комнату "${currentRoomId}"`);
-
-    // Автоматическое обнаружение участников комнаты
+  peer.on('open', () => {
+    addSystemMessage(`Вы вошли в ${currentRoomId}`);
     discoverAndConnectPeers();
   });
 
-  // Входящий видеозвонок
   peer.on('call', (call) => {
-    // Отвечаем нашим локальным потоком
     call.answer(localStream);
 
     call.on('stream', (remoteStream) => {
@@ -206,36 +184,18 @@ function initPeerConnection() {
     });
 
     if (!activePeers.has(call.peer)) {
-      activePeers.set(call.peer, { call, conn: null, username: 'Друг', stream: null });
+      activePeers.set(call.peer, { call, conn: null, username: 'Участник', stream: null });
     } else {
       activePeers.get(call.peer).call = call;
     }
   });
 
-  // Входящий канал данных (для чата, имен и реакций)
   peer.on('connection', (conn) => {
     setupDataConnection(conn);
   });
-
-  peer.on('error', (err) => {
-    console.error('PeerJS ошибка:', err);
-  });
 }
 
-// Поиск и соединение с другими участниками комнаты
-// Используем координационный механизм: хост комнаты и пиры
 function discoverAndConnectPeers() {
-  // Пробуем подключиться к хосту комнаты с фиксированным суффиксом, либо к известным участникам
-  // В mesh-сети для комнат PeerJS: пир подключается ко всем активным пирам в комнате
-  // Оповещаем через DataConnection
-  const hostId = `${ROOM_PREFIX}${currentRoomId}-host`;
-
-  if (myPeerId !== hostId) {
-    // Пробуем подключиться к хосту комнаты
-    tryConnectToPeer(hostId);
-  }
-
-  // Периодический пинг/анонс участников через LocalStorage broadcast (для соседних вкладок) и mesh
   announcePresence();
 }
 
@@ -248,7 +208,6 @@ function tryConnectToPeer(targetPeerId) {
 
   setupDataConnection(conn);
 
-  // Совершаем медиа-звонок
   if (localStream) {
     const call = peer.call(targetPeerId, localStream, {
       metadata: { username: currentUsername }
@@ -262,11 +221,10 @@ function tryConnectToPeer(targetPeerId) {
       handlePeerDisconnect(targetPeerId);
     });
 
-    activePeers.set(targetPeerId, { call, conn, username: 'Друг', stream: null });
+    activePeers.set(targetPeerId, { call, conn, username: 'Участник', stream: null });
   }
 }
 
-// Настройка DataConnection для чата и синхронизации
 function setupDataConnection(conn) {
   conn.on('open', () => {
     const peerId = conn.peer;
@@ -274,7 +232,6 @@ function setupDataConnection(conn) {
     existing.conn = conn;
     activePeers.set(peerId, existing);
 
-    // Отправляем информацию о себе
     conn.send({
       type: 'handshake',
       username: currentUsername,
@@ -282,7 +239,6 @@ function setupDataConnection(conn) {
       video: isVideoEnabled
     });
 
-    // Если звонок еще не был совершен — вызываем
     if (!existing.call && localStream) {
       const call = peer.call(peerId, localStream, {
         metadata: { username: currentUsername }
@@ -305,27 +261,24 @@ function setupDataConnection(conn) {
   });
 }
 
-// Обработка данных из канала DataConnection
 function handleIncomingData(senderId, data) {
   if (!data) return;
 
   if (data.type === 'handshake') {
     const peerInfo = activePeers.get(senderId) || {};
-    peerInfo.username = data.username || 'Друг';
+    peerInfo.username = data.username || 'Участник';
     activePeers.set(senderId, peerInfo);
 
-    addSystemMessage(`${peerInfo.username} подключился к звонку`);
+    addSystemMessage(`${peerInfo.username} в сети`);
     updatePeerCardInfo(senderId, peerInfo.username);
     updateUsersCount();
 
-    // Обмениваемся списком других пиров (mesh routing)
     activePeers.forEach((_, otherId) => {
       if (otherId !== senderId && otherId !== myPeerId) {
         connSend(senderId, { type: 'peer-hint', peerId: otherId });
       }
     });
   } else if (data.type === 'peer-hint') {
-    // Получили подсказку о наличии другого участника в комнате
     if (data.peerId && data.peerId !== myPeerId && !activePeers.has(data.peerId)) {
       tryConnectToPeer(data.peerId);
     }
@@ -342,8 +295,6 @@ function handleIncomingData(senderId, data) {
       chatUnreadBadge.textContent = unreadCount;
       chatUnreadBadge.style.display = 'inline-block';
     }
-  } else if (data.type === 'reaction') {
-    triggerFloatingEmoji(data.emoji);
   } else if (data.type === 'media-state') {
     updateRemoteMediaUI(senderId, data);
   }
@@ -364,9 +315,7 @@ function broadcastData(data) {
   });
 }
 
-// Оповещение о присутствии в комнате
 function announcePresence() {
-  // Для устройств в одной локальной сети / браузере используем BroadcastChannel
   try {
     const channel = new BroadcastChannel(`spark_${currentRoomId}`);
     channel.postMessage({ type: 'hello', peerId: myPeerId, username: currentUsername });
@@ -388,7 +337,7 @@ function announcePresence() {
 function handleRemoteStream(peerId, stream) {
   let peerInfo = activePeers.get(peerId);
   if (!peerInfo) {
-    peerInfo = { call: null, conn: null, username: 'Друг', stream };
+    peerInfo = { call: null, conn: null, username: 'Участник', stream };
     activePeers.set(peerId, peerInfo);
   } else {
     peerInfo.stream = stream;
@@ -401,7 +350,7 @@ function handleRemoteStream(peerId, stream) {
 function handlePeerDisconnect(peerId) {
   const info = activePeers.get(peerId);
   if (info) {
-    addSystemMessage(`${info.username || 'Участник'} покинул комнату`);
+    addSystemMessage(`${info.username || 'Участник'} вышел`);
     if (info.call) info.call.close();
     if (info.conn) info.conn.close();
   }
@@ -418,18 +367,26 @@ function addOrUpdateRemoteVideoCard(peerId, username, stream) {
     card.id = `card-${peerId}`;
     card.className = 'video-card';
 
-    const displayName = username || 'Собеседник';
-    const firstLetter = displayName[0].toUpperCase();
+    const displayName = username || 'Участник';
+    const initials = displayName.slice(0, 2).toUpperCase();
 
     card.innerHTML = `
       <video autoplay playsinline></video>
       <div class="avatar-fallback" style="display: none;">
-        <span>${firstLetter}</span>
+        <span>${initials}</span>
       </div>
       <div class="participant-badge">
         <span class="user-name">${displayName}</span>
         <div class="participant-indicators">
-          <span class="indicator mic-off" style="display: none;">🔇</span>
+          <span class="indicator mic-off" style="display: none;">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="1" y1="1" x2="23" y2="23"></line>
+              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path>
+              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </span>
         </div>
       </div>
     `;
@@ -448,7 +405,7 @@ function updatePeerCardInfo(peerId, username) {
     const nameEl = card.querySelector('.user-name');
     const fallbackLetter = card.querySelector('.avatar-fallback span');
     if (nameEl) nameEl.textContent = username;
-    if (fallbackLetter && username) fallbackLetter.textContent = username[0].toUpperCase();
+    if (fallbackLetter && username) fallbackLetter.textContent = username.slice(0, 2).toUpperCase();
   }
 }
 
@@ -511,7 +468,6 @@ function pluralizeUsers(n) {
 
 // ==================== КНОПКИ ЗВОНКА ====================
 
-// Микрофон
 toggleMicBtn.addEventListener('click', () => {
   isAudioEnabled = !isAudioEnabled;
   if (localStream) {
@@ -523,7 +479,6 @@ toggleMicBtn.addEventListener('click', () => {
   broadcastData({ type: 'media-state', audio: isAudioEnabled });
 });
 
-// Камера
 toggleCamBtn.addEventListener('click', () => {
   isVideoEnabled = !isVideoEnabled;
   if (localStream) {
@@ -542,7 +497,6 @@ toggleCamBtn.addEventListener('click', () => {
   broadcastData({ type: 'media-state', video: isVideoEnabled });
 });
 
-// Демонстрация экрана
 toggleScreenBtn.addEventListener('click', async () => {
   if (!isScreenSharing) {
     try {
@@ -562,7 +516,7 @@ toggleScreenBtn.addEventListener('click', async () => {
         stopScreenShare();
       };
     } catch (err) {
-      console.warn('Демонстрация экрана отменена:', err);
+      console.warn('Демонстрация отменена:', err);
     }
   } else {
     stopScreenShare();
@@ -601,7 +555,6 @@ function replaceVideoTrack(newTrack) {
   });
 }
 
-// Выход
 leaveRoomBtn.addEventListener('click', () => {
   if (confirm('Покинуть звонок?')) {
     if (peer) peer.destroy();
@@ -609,17 +562,16 @@ leaveRoomBtn.addEventListener('click', () => {
   }
 });
 
-// Копирование ссылки
 copyLinkBtn.addEventListener('click', async () => {
   const inviteUrl = window.location.href;
   try {
     await navigator.clipboard.writeText(inviteUrl);
-    copyBtnText.textContent = 'Скопировано! 🎉';
+    copyBtnText.textContent = 'Скопировано';
     setTimeout(() => {
-      copyBtnText.textContent = 'Копировать ссылку';
+      copyBtnText.textContent = 'Ссылка';
     }, 2000);
   } catch (err) {
-    prompt('Скопируйте ссылку для друзей:', inviteUrl);
+    prompt('Ссылка на комнату:', inviteUrl);
   }
 });
 
@@ -692,16 +644,14 @@ function renderChatMessage(msg) {
   if (parsed.firstUrl) {
     try {
       const u = new URL(parsed.firstUrl);
-      let icon = '🔗';
-      if (u.hostname.includes('youtube.com') || u.hostname.includes('youtu.be')) icon = '▶️';
-      else if (u.hostname.includes('github.com')) icon = '🐙';
-      else if (u.hostname.includes('t.me')) icon = '✈️';
-      else if (u.hostname.includes('discord')) icon = '🎮';
-      else if (u.hostname.includes('spotify.com')) icon = '🎵';
-
       previewHtml = `
         <div class="link-preview-box">
-          <span class="link-preview-icon">${icon}</span>
+          <div class="link-preview-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+          </div>
           <div class="link-preview-info">
             <span class="link-preview-host">${escapeHtml(u.hostname)}</span>
             <span class="link-preview-url">${escapeHtml(parsed.firstUrl)}</span>
@@ -724,28 +674,4 @@ function renderChatMessage(msg) {
 
   chatMessages.appendChild(msgDiv);
   chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-// ==================== РЕАКЦИИ ====================
-
-document.querySelectorAll('.reaction-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const emoji = btn.getAttribute('data-emoji');
-    triggerFloatingEmoji(emoji);
-    broadcastData({ type: 'reaction', emoji });
-  });
-});
-
-function triggerFloatingEmoji(emoji) {
-  const el = document.createElement('div');
-  el.className = 'floating-emoji';
-  el.textContent = emoji;
-
-  const randomX = 15 + Math.random() * 70;
-  el.style.left = `${randomX}%`;
-
-  reactionsContainer.appendChild(el);
-  setTimeout(() => {
-    el.remove();
-  }, 2500);
 }

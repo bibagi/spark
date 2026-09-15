@@ -1,24 +1,25 @@
 :root {
-  --bg-main: #0b0e14;
-  --bg-surface: #151922;
-  --bg-card: rgba(26, 32, 44, 0.75);
-  --bg-card-hover: rgba(36, 44, 60, 0.85);
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-glow: rgba(0, 240, 255, 0.3);
+  /* Палитра строго Ч/Б без черного #000 (оттенки графита, цинка и матового серого) */
+  --bg-main: #18191c;
+  --bg-surface: #22252a;
+  --bg-card: #2a2d34;
+  --bg-card-hover: #333740;
+  --bg-input: #1f2126;
+  --bg-pill: #31353e;
 
-  --accent-cyan: #00f2fe;
-  --accent-purple: #9d4edd;
-  --accent-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --spark-glow: 0 0 20px rgba(0, 242, 254, 0.4);
+  --text-main: #f1f3f5;
+  --text-muted: #8b929e;
+  --text-dim: #606773;
 
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --danger-color: #ef4444;
-  --success-color: #10b981;
+  --btn-active: #e9ecef;
+  --btn-active-text: #18191c;
+  --btn-muted: #3a3f4a;
+  --danger: #4a4d57;
+  --danger-active: #5c606c;
 
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
+  --radius-sm: 14px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
   --radius-full: 9999px;
 }
 
@@ -26,6 +27,8 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  border: none;
+  outline: none;
 }
 
 body {
@@ -34,30 +37,8 @@ body {
   color: var(--text-main);
   height: 100vh;
   overflow: hidden;
-  position: relative;
   user-select: none;
-}
-
-/* Фоновое неоновое свечение */
-.ambient-glow {
-  position: absolute;
-  width: 500px;
-  height: 500px;
-  border-radius: 50%;
-  filter: blur(140px);
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.15;
-}
-.glow-1 {
-  top: -100px;
-  left: -100px;
-  background: #00f2fe;
-}
-.glow-2 {
-  bottom: -100px;
-  right: -100px;
-  background: #9d4edd;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Управление экранами */
@@ -65,8 +46,6 @@ body {
   display: none;
   height: 100vh;
   width: 100vw;
-  position: relative;
-  z-index: 1;
 }
 .screen.active {
   display: flex;
@@ -76,21 +55,16 @@ body {
 #lobby-screen {
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 24px;
 }
 
 .lobby-card {
   background: var(--bg-card);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
-  padding: 40px;
+  padding: 44px;
   width: 100%;
   max-width: 440px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
   text-align: center;
-  animation: fadeIn 0.4s ease-out;
 }
 
 .brand {
@@ -98,31 +72,28 @@ body {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .logo-spark {
-  color: var(--accent-cyan);
+  color: var(--text-main);
   display: flex;
   align-items: center;
   justify-content: center;
-  filter: drop-shadow(0 0 10px rgba(0, 242, 254, 0.7));
 }
 
 .brand h1 {
   font-family: 'Outfit', sans-serif;
-  font-size: 2.2rem;
-  font-weight: 800;
+  font-size: 2.1rem;
+  font-weight: 700;
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #fff 40%, var(--accent-cyan));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--text-main);
 }
 
 .tagline {
   font-size: 0.95rem;
   color: var(--text-muted);
-  margin-bottom: 28px;
+  margin-bottom: 32px;
   line-height: 1.4;
 }
 
@@ -138,39 +109,36 @@ body {
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text-muted);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  margin-left: 6px;
 }
 
 .input-group input {
   width: 100%;
-  padding: 12px 16px;
-  background: rgba(11, 14, 20, 0.6);
-  border: 1px solid var(--border-color);
+  padding: 14px 20px;
+  background: var(--bg-input);
   border-radius: var(--radius-md);
   color: var(--text-main);
   font-size: 0.95rem;
-  transition: all 0.2s ease;
-  outline: none;
+  transition: background 0.2s ease;
 }
 
 .input-group input:focus {
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 12px rgba(0, 242, 254, 0.25);
+  background: #25282f;
 }
 
 .room-input-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .media-preview-container {
   position: relative;
   width: 100%;
-  height: 180px;
-  background: #0f131a;
+  height: 190px;
+  background: var(--bg-input);
   border-radius: var(--radius-md);
   overflow: hidden;
-  border: 1px solid var(--border-color);
   margin-top: 4px;
 }
 
@@ -179,6 +147,7 @@ body {
   height: 100%;
   object-fit: cover;
   transform: scaleX(-1);
+  border-radius: var(--radius-md);
 }
 
 .preview-overlay {
@@ -187,8 +156,8 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  background: #171d28;
-  font-size: 2.5rem;
+  background: var(--bg-input);
+  color: var(--text-muted);
 }
 
 .lobby-controls {
@@ -203,65 +172,60 @@ body {
 
 /* Кнопки */
 .circle-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #fff;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-full);
+  background: var(--bg-pill);
+  color: var(--text-main);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
 .circle-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--bg-card-hover);
 }
 .circle-btn.muted {
-  background: var(--danger-color);
-  border-color: var(--danger-color);
+  background: var(--btn-muted);
+  color: var(--text-dim);
 }
 
 .btn {
-  padding: 12px 20px;
+  padding: 14px 22px;
   border-radius: var(--radius-md);
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  border: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  transition: all 0.2s;
+  gap: 10px;
+  transition: all 0.2s ease;
 }
 
 .btn-primary {
-  background: var(--accent-gradient);
-  color: #0b0e14;
-  box-shadow: 0 4px 15px rgba(0, 242, 254, 0.35);
+  background: var(--btn-active);
+  color: var(--btn-active-text);
 }
 .btn-primary:hover {
-  opacity: 0.95;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(0, 242, 254, 0.45);
+  background: #ffffff;
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-input);
   color: var(--text-main);
-  border: 1px solid var(--border-color);
-  padding: 0 16px;
+  padding: 0 18px;
+  border-radius: var(--radius-md);
 }
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--bg-pill);
 }
 
 .btn-block {
   width: 100%;
   margin-top: 8px;
+  border-radius: var(--radius-md);
 }
 
 /* ==================== ROOM SCREEN ==================== */
@@ -271,69 +235,66 @@ body {
 
 /* Верхняя полоса */
 .top-bar {
-  height: 60px;
-  padding: 0 20px;
+  height: 64px;
+  padding: 0 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border-color);
-  background: rgba(11, 14, 20, 0.85);
-  backdrop-filter: blur(15px);
+  background: var(--bg-surface);
   z-index: 10;
 }
 
 .brand-small {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 .brand-title {
   font-family: 'Outfit', sans-serif;
-  font-weight: 800;
-  font-size: 1.3rem;
+  font-weight: 700;
+  font-size: 1.25rem;
   letter-spacing: -0.3px;
+  color: var(--text-main);
 }
 
 .room-info-pill {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--border-color);
-  padding: 6px 16px;
+  background: var(--bg-card);
+  padding: 8px 18px;
   border-radius: var(--radius-full);
 }
 
 .live-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--success-color);
+  width: 7px;
+  height: 7px;
+  background: var(--text-main);
   border-radius: 50%;
-  box-shadow: 0 0 8px var(--success-color);
+  opacity: 0.8;
 }
 
 .room-name {
   font-size: 0.9rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-main);
 }
 
 .pill-btn {
-  background: rgba(0, 242, 254, 0.15);
-  border: 1px solid rgba(0, 242, 254, 0.3);
-  color: var(--accent-cyan);
+  background: var(--bg-pill);
+  color: var(--text-main);
   border-radius: var(--radius-full);
-  padding: 4px 10px;
+  padding: 6px 14px;
   font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   transition: all 0.2s;
 }
 .pill-btn:hover {
-  background: rgba(0, 242, 254, 0.25);
+  background: var(--bg-card-hover);
 }
 
 .top-actions {
@@ -343,11 +304,10 @@ body {
 }
 
 .icon-btn {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-color);
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-full);
+  background: var(--bg-card);
   color: var(--text-main);
   cursor: pointer;
   position: relative;
@@ -357,15 +317,14 @@ body {
   transition: all 0.2s;
 }
 .icon-btn:hover, .icon-btn.active {
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--accent-cyan);
+  background: var(--bg-pill);
 }
 .icon-btn .badge {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  background: var(--danger-color);
-  color: #fff;
+  top: -2px;
+  right: -2px;
+  background: var(--btn-active);
+  color: var(--btn-active-text);
   font-size: 0.7rem;
   font-weight: 700;
   padding: 2px 6px;
@@ -378,12 +337,14 @@ body {
   display: flex;
   overflow: hidden;
   position: relative;
+  background: var(--bg-main);
+  gap: 16px;
+  padding: 16px;
 }
 
 .video-stage {
   flex: 1;
   display: flex;
-  padding: 16px;
   overflow: hidden;
   position: relative;
 }
@@ -399,27 +360,26 @@ body {
 }
 
 .video-grid.single-user {
-  grid-template-columns: minmax(320px, 800px);
+  grid-template-columns: minmax(320px, 860px);
 }
 
 /* Карточка участника */
 .video-card {
   position: relative;
-  background: #131720;
-  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
   overflow: hidden;
-  border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
   aspect-ratio: 16 / 9;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .video-card video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: var(--radius-lg);
 }
 
 .video-card.local video {
@@ -429,7 +389,7 @@ body {
 .video-card.screen-share video {
   transform: none !important;
   object-fit: contain;
-  background: #000;
+  background: var(--bg-input);
 }
 
 .avatar-fallback {
@@ -438,41 +398,41 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  background: #171c26;
-  font-size: 3rem;
-  font-weight: 700;
+  background: var(--bg-surface);
+  font-size: 2.2rem;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
 .participant-badge {
   position: absolute;
-  bottom: 12px;
-  left: 12px;
-  background: rgba(11, 14, 20, 0.75);
-  backdrop-filter: blur(8px);
-  padding: 4px 12px;
+  bottom: 14px;
+  left: 14px;
+  background: rgba(34, 37, 42, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 6px 14px;
   border-radius: var(--radius-full);
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.85rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.82rem;
 }
 
 .participant-indicators {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  color: var(--text-dim);
 }
 
 /* Чат панель */
 .chat-panel {
   width: 360px;
-  border-left: 1px solid var(--border-color);
-  background: rgba(15, 19, 27, 0.95);
-  backdrop-filter: blur(20px);
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
-  transition: transform 0.3s ease, margin-right 0.3s ease;
+  overflow: hidden;
   z-index: 5;
 }
 
@@ -481,15 +441,14 @@ body {
 }
 
 .chat-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 18px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .chat-header h3 {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -500,37 +459,35 @@ body {
 
 .chat-messages {
   flex: 1;
-  padding: 16px;
+  padding: 16px 20px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-/* Кастомизация скроллбара */
 .chat-messages::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 .chat-messages::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-card);
   border-radius: 10px;
 }
 
 .chat-message {
   display: flex;
   flex-direction: column;
-  max-width: 90%;
-  animation: fadeIn 0.2s ease-out;
+  max-width: 88%;
 }
 
 .chat-message.system {
   align-self: center;
   max-width: 100%;
   text-align: center;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 4px 12px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  background: var(--bg-card);
+  padding: 4px 14px;
   border-radius: var(--radius-full);
 }
 
@@ -539,11 +496,12 @@ body {
 }
 
 .message-meta {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-bottom: 3px;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-bottom: 4px;
   display: flex;
   gap: 6px;
+  padding: 0 4px;
 }
 
 .chat-message.mine .message-meta {
@@ -551,45 +509,41 @@ body {
 }
 
 .message-bubble {
-  background: rgba(255, 255, 255, 0.07);
-  padding: 10px 14px;
+  background: var(--bg-card);
+  padding: 12px 16px;
   border-radius: var(--radius-md);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   line-height: 1.45;
   word-break: break-word;
   user-select: text;
 }
 
 .chat-message.mine .message-bubble {
-  background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(79, 172, 254, 0.15));
-  border: 1px solid rgba(0, 242, 254, 0.3);
+  background: var(--bg-pill);
 }
 
-/* Ссылки и интерактивные превью */
+/* Ссылки */
 .message-bubble a {
-  color: var(--accent-cyan);
+  color: var(--text-main);
   text-decoration: underline;
   text-underline-offset: 3px;
   font-weight: 500;
-  transition: opacity 0.2s;
-}
-.message-bubble a:hover {
-  opacity: 0.8;
 }
 
 .link-preview-box {
-  margin-top: 8px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 10px;
+  background: var(--bg-input);
   border-radius: var(--radius-sm);
-  padding: 8px 12px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .link-preview-icon {
-  font-size: 1.3rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
 }
 
 .link-preview-info {
@@ -600,7 +554,7 @@ body {
 
 .link-preview-host {
   font-size: 0.75rem;
-  color: var(--accent-cyan);
+  color: var(--text-main);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -608,74 +562,50 @@ body {
 
 .link-preview-url {
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Панель реакций */
-.reactions-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  padding: 8px 12px;
-  border-top: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.15);
-}
-
-.reaction-btn {
-  background: none;
-  border: none;
-  font-size: 1.25rem;
-  cursor: pointer;
-  transition: transform 0.15s ease;
-  padding: 4px;
-}
-.reaction-btn:hover {
-  transform: scale(1.3);
-}
-
 .chat-form {
-  padding: 12px 16px;
+  padding: 16px 20px;
   display: flex;
-  gap: 8px;
-  border-top: 1px solid var(--border-color);
+  gap: 10px;
+  background: var(--bg-surface);
 }
 
 .chat-form input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 10px 14px;
-  color: #fff;
+  background: var(--bg-input);
+  border-radius: var(--radius-full);
+  padding: 12px 18px;
+  color: var(--text-main);
   font-size: 0.9rem;
-  outline: none;
   user-select: text;
 }
 .chat-form input:focus {
-  border-color: var(--accent-cyan);
+  background: #25282f;
 }
 
 .chat-send-btn {
-  background: var(--accent-cyan);
-  border: none;
-  width: 40px;
-  border-radius: var(--radius-md);
-  color: #0b0e14;
+  background: var(--btn-active);
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-full);
+  color: var(--btn-active-text);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s;
+  flex-shrink: 0;
 }
 .chat-send-btn:hover {
-  opacity: 0.9;
-  transform: scale(1.05);
+  background: #ffffff;
 }
 
-/* Всплывающие летающие эмодзи */
+/* Всплывающие пинги/реакции */
 .reactions-floating {
   position: absolute;
   inset: 0;
@@ -684,43 +614,47 @@ body {
   z-index: 10;
 }
 
-.floating-emoji {
+.floating-reaction-icon {
   position: absolute;
-  bottom: 20px;
-  font-size: 2.5rem;
-  animation: floatUp 2.5s forwards ease-out;
+  bottom: 24px;
+  background: var(--bg-card);
+  padding: 10px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-main);
+  animation: floatUp 2.2s forwards ease-out;
 }
 
 @keyframes floatUp {
   0% {
     opacity: 1;
-    transform: translateY(0) scale(0.6);
+    transform: translateY(0) scale(0.8);
   }
-  50% {
-    transform: translateY(-200px) scale(1.2);
+  60% {
+    transform: translateY(-180px) scale(1.1);
   }
   100% {
     opacity: 0;
-    transform: translateY(-400px) scale(1);
+    transform: translateY(-340px) scale(0.9);
   }
 }
 
 /* Нижняя панель звонка (Dock) */
 .call-controls-dock {
-  height: 80px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(11, 14, 20, 0.9);
-  backdrop-filter: blur(20px);
-  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
   z-index: 10;
 }
 
 .controls-group {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 14px;
 }
 
 .control-btn {
@@ -728,53 +662,49 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--border-color);
+  background: var(--bg-card);
   color: var(--text-main);
-  padding: 8px 16px;
+  padding: 10px 18px;
   border-radius: var(--radius-md);
   font-size: 0.75rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
 }
 .control-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--bg-pill);
 }
 
 .control-btn.muted, .control-btn.off {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.4);
-  color: var(--danger-color);
+  background: var(--btn-muted);
+  color: var(--text-dim);
 }
 
 .control-btn.danger {
-  background: var(--danger-color);
-  border-color: var(--danger-color);
-  color: #fff;
+  background: var(--danger);
+  color: var(--text-main);
 }
 .control-btn.danger:hover {
-  opacity: 0.9;
-  box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
-}
-
-/* Анимации */
-@keyframes fadeIn {
-  from { opacity: 0; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
+  background: var(--danger-active);
 }
 
 @media (max-width: 768px) {
+  .main-room-layout {
+    padding: 8px;
+    gap: 8px;
+  }
   .chat-panel {
     position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 100%;
+    right: 8px;
+    top: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
   }
   .controls-group {
     gap: 8px;
   }
   .control-btn {
-    padding: 6px 10px;
+    padding: 8px 12px;
   }
 }
