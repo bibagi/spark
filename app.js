@@ -1022,15 +1022,16 @@ function startRoomSession() {
 // ==================== ЧИСТЫЙ НАДЕЖНЫЙ WEBRTC ЧЕРЕЗ SUPABASE REALTIME (БЕЗ PEERJS И БЕЗ CORS) ====================
 let realtimeChannel = null;
 
-// STUN серверы Google + Metered для прямого P2P соединения
-// TURN-реле Metered (личные креды) — чтобы соединение работало даже при
-// симметричном NAT (мобильная сеть / строгие файрволы) без VPN
+// STUN/TURN серверы. Первым идёт TURNS (TURN over TLS, порт 443) — он маскируется
+// под обычный HTTPS-трафик и хуже режется DPI/ТСПУ. Дальше TURN по UDP/TCP,
+// затем STUN как запасной для прямого P2P.
 const rtcConfig = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun.metered.ca:80' },
+    {
+      urls: ['turns:turn.metered.ca:443?transport=tcp'],
+      username: 'd6f62ff8edb581396a792ac3',
+      credential: '+95AmmEg+TD+4Ek1'
+    },
     {
       urls: [
         'turn:turn.metered.ca:80',
@@ -1039,6 +1040,15 @@ const rtcConfig = {
       ],
       username: 'd6f62ff8edb581396a792ac3',
       credential: '+95AmmEg+TD+4Ek1'
+    },
+    {
+      urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302']
+    },
+    { urls: 'stun:stun.metered.ca:80' },
+    {
+      urls: ['turns:openrelay.metered.ca:443?transport=tcp'],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
     },
     {
       urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
@@ -1174,7 +1184,11 @@ function createPeerConnection(remotePeerId, isInitiator) {
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
+      const c = event.candidate;
+      console.log(`[ICE] Локальный кандидат (${remotePeerId}): тип=${c.type}, ${c.protocol}:${c.port}, адрес=${c.address}`);
       sendSignal(remotePeerId, 'candidate', event.candidate);
+    } else {
+      console.log('[ICE] Сбор локальных кандидатов завершен:', remotePeerId);
     }
   };
 
@@ -1293,6 +1307,9 @@ async function handleIncomingSignal(payload) {
       flushPendingCandidates(peerObj);
     } else if (type === 'candidate' && data) {
       // Кандидат может прийти раньше offer/answer — буферизуем до setRemoteDescription
+      if (data.type === 'relay') {
+        console.log(`[ICE] Входящий RELAY-кандидат от ${senderId}: ${data.transport}:${data.port}, адрес=${data.address}`);
+      }
       if (pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(data));
       } else {
