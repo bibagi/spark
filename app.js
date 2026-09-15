@@ -1141,7 +1141,9 @@ function createPeerConnection(remotePeerId, isInitiator) {
     pendingCandidates: [],
     negotiating: false,
     restartCount: 0,
-    reconnectTimer: null
+    reconnectTimer: null,
+    offerSentAt: 0,
+    closedByUs: false
   };
   activePeers.set(remotePeerId, peerObj);
 
@@ -1201,13 +1203,15 @@ function createPeerConnection(remotePeerId, isInitiator) {
         handlePeerDisconnect(remotePeerId);
       }
     } else if (state === 'closed') {
-      handlePeerDisconnect(remotePeerId);
+      // Не кикаем, если PC закрыли МЫ сами при пересоздании
+      if (!peerObj.closedByUs) {
+        handlePeerDisconnect(remotePeerId);
+      }
     }
   };
 
   if (isInitiator) {
-    // Явная догока вместо onnegotiationneeded — гарантированно один offer,
-    // никаких дубликатов и ошибок "answer в stable state"
+    // Обе стороны могут звонить — коллизии offer решаются через glare+rollback
     setTimeout(() => {
       if (activePeers.get(remotePeerId) === peerObj) {
         makeOffer(peerObj, remotePeerId, false);
@@ -1225,6 +1229,7 @@ async function makeOffer(peerObj, remotePeerId, iceRestart) {
     const offer = await peerObj.pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
     await peerObj.pc.setLocalDescription(offer);
     sendSignal(remotePeerId, 'offer', offer);
+    peerObj.offerSentAt = Date.now();
   } catch (err) {
     console.error('Ошибка создания offer:', err);
   } finally {
@@ -1250,7 +1255,19 @@ async function handleIncomingSignal(payload) {
 
   try {
     if (type === 'offer') {
+      const haveLocalOffer = pc.localDescription && pc.localDescription.type === 'offer';
+      if (haveLocalOffer && peerObj.negotiating === false) {
+        // Коллизия: оба отправили offer. Меньшая сторона откатывается и отвечает,
+        // большая игнорирует чужой offer (его ответит другая сторона).
+        if (myPeerId > senderId) {
+          console.log('Glare: игнорируем чужой offer от', senderId);
+          return;
+        }
+        console.log('Glare: откатываем свой offer и отвечаем на offer от', senderId);
+        try { await pc.setLocalDescription({ type: 'rollback' }); } catch (e) {}
+      }
       console.log('Получен offer от:', senderId);
+      peerObj.negotiating = false;
       await pc.setRemoteDescription(new RTCSessionDescription(data));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -1293,18 +1310,26 @@ function flushPendingCandidates(peerObj) {
 
 // Страховочный дозвон: независимо от того, кто инициатор, каждые N секунд
 // проверяем, что ко всем присутствующим в комнате есть живое соединение.
-// Меньшая сторона стучится к инициатору сигналом knock.
+// Обе стороны умеют звонить — коллизии offer/answer решаются glare+rollback.
 function ensureConnectionTo(peerId) {
   if (peerId === myPeerId) return;
 
   const existing = activePeers.get(peerId);
-  if (existing && existing.pc &&
-      existing.pc.connectionState !== 'failed' &&
-      existing.pc.connectionState !== 'closed') {
-    return; // уже есть живое, инициирующееся или реконнектящееся соединение
+  if (existing && existing.pc) {
+    const st = existing.pc.connectionState;
+    if (st !== 'failed' && st !== 'closed') {
+      // Соединение живое или в процессе. Единственный случай, когда перезваниваем:
+      // offer отправлен давно (>6с), а answer/ICE так и не дошёл — застревание.
+      if (st === 'connecting' && existing.offerSentAt && (Date.now() - existing.offerSentAt) > 6000) {
+        console.log('Offer завис >6с, перезваниваем:', peerId);
+      } else {
+        return;
+      }
+    }
   }
 
   if (existing) {
+    existing.closedByUs = true;
     try { existing.pc.close(); } catch (e) {}
     if (existing.reconnectTimer) clearTimeout(existing.reconnectTimer);
     activePeers.delete(peerId);
@@ -1312,13 +1337,8 @@ function ensureConnectionTo(peerId) {
     updateUsersCount();
   }
 
-  if (myPeerId > peerId) {
-    console.log('Звонок к:', peerId);
-    createPeerConnection(peerId, true);
-  } else {
-    console.log('Мы меньшая сторона, стучимся к:', peerId);
-    sendKnock(peerId);
-  }
+  console.log('Звонок к:', peerId);
+  createPeerConnection(peerId, true);
 }
 
 function sendKnock(targetPeerId) {
@@ -1411,6 +1431,7 @@ function handlePeerDisconnect(peerId) {
   if (info) {
     addSystemMessage(`${info.username || 'Участник'} вышел`);
     if (info.reconnectTimer) { clearTimeout(info.reconnectTimer); }
+    info.closedByUs = true;
     if (info.pc) { try { info.pc.close(); } catch (e) {} }
   }
   activePeers.delete(peerId);
@@ -1690,6 +1711,7 @@ confirmLeaveBtn.addEventListener('click', async () => {
     try { supabaseClient.removeChannel(realtimeChannel); } catch (e) {}
   }
   activePeers.forEach((peerObj) => {
+    peerObj.closedByUs = true;
     if (peerObj.pc) try { peerObj.pc.close(); } catch (e) {}
   });
   window.location.href = window.location.pathname;
