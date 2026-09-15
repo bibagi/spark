@@ -1084,11 +1084,8 @@ function setupSupabaseRealtimeSignaling() {
       console.log('👥 Участники онлайн в комнате:', state);
 
       Object.keys(state).forEach((peerId) => {
-        if (peerId !== myPeerId && !activePeers.has(peerId)) {
-          if (myPeerId > peerId) {
-            console.log('Инициируем WebRTC звонок к:', peerId);
-            createPeerConnection(peerId, true);
-          }
+        if (peerId !== myPeerId) {
+          ensureConnectionTo(peerId);
         }
       });
       updateUsersCount();
@@ -1106,6 +1103,7 @@ function setupSupabaseRealtimeSignaling() {
           joinedAt: Date.now()
         });
         console.log('✅ Подключено к Realtime комнате');
+        startDialInsurance();
       }
     });
 
@@ -1176,6 +1174,16 @@ function createPeerConnection(remotePeerId, isInitiator) {
         clearTimeout(peerObj.reconnectTimer);
         peerObj.reconnectTimer = null;
       }
+      // Диагностика: какой тип кандидата выбран (host/srflx/relay)
+      try {
+        pc.getStats().then(stats => {
+          stats.forEach(stat => {
+            if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
+              console.log(`ICE путь (${remotePeerId}): local=${stat.localCandidateType}, remote=${stat.remoteCandidateType}`);
+            }
+          });
+        }).catch(() => {});
+      } catch (e) {}
     } else if (state === 'disconnected' || state === 'failed') {
       // ICE-restart делает только инициатор (сторона с большим ID),
       // чтобы не было гонки offer/answer. Одна попытка за раз, максимум 3
@@ -1262,6 +1270,10 @@ async function handleIncomingSignal(payload) {
         console.log('Буферизуем ICE-кандидата от:', senderId);
         peerObj.pendingCandidates.push(data);
       }
+    } else if (type === 'knock') {
+      // Нас поторопили — если мы инициатор и соединения ещё нет, звоним
+      console.log('Получен knock от:', senderId);
+      ensureConnectionTo(senderId);
     }
   } catch (err) {
     console.warn('Ошибка обработки WebRTC сигнала:', err);
@@ -1277,6 +1289,68 @@ function flushPendingCandidates(peerObj) {
     });
   });
   peerObj.pendingCandidates = [];
+}
+
+// Страховочный дозвон: независимо от того, кто инициатор, каждые N секунд
+// проверяем, что ко всем присутствующим в комнате есть живое соединение.
+// Меньшая сторона стучится к инициатору сигналом knock.
+function ensureConnectionTo(peerId) {
+  if (peerId === myPeerId) return;
+
+  const existing = activePeers.get(peerId);
+  if (existing && existing.pc &&
+      existing.pc.connectionState !== 'failed' &&
+      existing.pc.connectionState !== 'closed') {
+    return; // уже есть живое, инициирующееся или реконнектящееся соединение
+  }
+
+  if (existing) {
+    try { existing.pc.close(); } catch (e) {}
+    if (existing.reconnectTimer) clearTimeout(existing.reconnectTimer);
+    activePeers.delete(peerId);
+    removeVideoCard(peerId);
+    updateUsersCount();
+  }
+
+  if (myPeerId > peerId) {
+    console.log('Звонок к:', peerId);
+    createPeerConnection(peerId, true);
+  } else {
+    console.log('Мы меньшая сторона, стучимся к:', peerId);
+    sendKnock(peerId);
+  }
+}
+
+function sendKnock(targetPeerId) {
+  if (realtimeChannel) {
+    realtimeChannel.send({
+      type: 'broadcast',
+      event: 'signal',
+      payload: { senderId: myPeerId, target: targetPeerId, type: 'knock', username: currentUsername, avatar: currentAvatar }
+    });
+  }
+}
+
+let dialInsuranceTimer = null;
+
+function startDialInsurance() {
+  stopDialInsurance();
+  dialInsuranceTimer = setInterval(() => {
+    if (!realtimeChannel || !currentRoomId) return;
+    try {
+      const state = realtimeChannel.presenceState();
+      Object.keys(state).forEach((peerId) => {
+        if (peerId !== myPeerId) ensureConnectionTo(peerId);
+      });
+    } catch (e) {}
+  }, 6000);
+}
+
+function stopDialInsurance() {
+  if (dialInsuranceTimer) {
+    clearInterval(dialInsuranceTimer);
+    dialInsuranceTimer = null;
+  }
 }
 
 function broadcastData(data) {
@@ -1304,11 +1378,11 @@ function announcePresence() {
 
     channel.onmessage = (event) => {
       const { type, peerId } = event.data;
-      if (type === 'hello' && peerId !== myPeerId && !activePeers.has(peerId)) {
-        if (myPeerId > peerId) createPeerConnection(peerId, true);
+      if (type === 'hello' && peerId !== myPeerId) {
+        ensureConnectionTo(peerId);
         channel.postMessage({ type: 'welcome', peerId: myPeerId, username: currentUsername });
-      } else if (type === 'welcome' && peerId !== myPeerId && !activePeers.has(peerId)) {
-        if (myPeerId > peerId) createPeerConnection(peerId, true);
+      } else if (type === 'welcome' && peerId !== myPeerId) {
+        ensureConnectionTo(peerId);
       }
     };
   } catch (e) {}
@@ -1611,6 +1685,7 @@ confirmLeaveBtn.addEventListener('click', async () => {
   if (isHost) {
     await dbDeactivateRoom(currentRoomId);
   }
+  stopDialInsurance();
   if (realtimeChannel && supabaseClient) {
     try { supabaseClient.removeChannel(realtimeChannel); } catch (e) {}
   }
