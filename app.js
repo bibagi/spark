@@ -1022,46 +1022,57 @@ function startRoomSession() {
 // ==================== ЧИСТЫЙ НАДЕЖНЫЙ WEBRTC ЧЕРЕЗ SUPABASE REALTIME (БЕЗ PEERJS И БЕЗ CORS) ====================
 let realtimeChannel = null;
 
-// STUN/TURN серверы. Первым идёт TURNS (TURN over TLS, порт 443) — он маскируется
-// под обычный HTTPS-трафик и хуже режется DPI/ТСПУ. Дальше TURN по UDP/TCP,
-// затем STUN как запасной для прямого P2P.
-const rtcConfig = {
+// STUN/TURN серверы Metered (личный аккаунт). Главное — TURNS по 443 (TLS) и
+// turn:443 — хуже режутся DPI/ТСПУ. Креды обновляются через REST API аккаунта.
+const METERED_STATIC_ICE = [
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  {
+    urls: [
+      'turn:global.relay.metered.ca:80',
+      'turn:global.relay.metered.ca:80?transport=tcp',
+      'turn:global.relay.metered.ca:443',
+      'turns:global.relay.metered.ca:443?transport=tcp'
+    ],
+    username: 'd6f62ff8edb581396a792ac3',
+    credential: '+95AmmEg+TD+4Ek1'
+  }
+];
+
+const FALLBACK_RTC_CONFIG = {
   iceServers: [
-    {
-      urls: ['turns:turn.metered.ca:443?transport=tcp'],
-      username: 'd6f62ff8edb581396a792ac3',
-      credential: '+95AmmEg+TD+4Ek1'
-    },
-    {
-      urls: [
-        'turn:turn.metered.ca:80',
-        'turn:turn.metered.ca:443',
-        'turn:turn.metered.ca:80?transport=tcp'
-      ],
-      username: 'd6f62ff8edb581396a792ac3',
-      credential: '+95AmmEg+TD+4Ek1'
-    },
-    {
-      urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302']
-    },
-    { urls: 'stun:stun.metered.ca:80' },
-    {
-      urls: ['turns:openrelay.metered.ca:443?transport=tcp'],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    }
+    ...METERED_STATIC_ICE,
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
   ]
 };
+
+const METERED_API_KEY = '660b346621f16c4e1e02e5051ea9c2b9b880';
+const METERED_TURN_URL = `https://sparkvoice.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`;
+
+let rtcConfig = FALLBACK_RTC_CONFIG;
+
+// Обновляем креды Metered через REST API. Вызывается при входе в комнату.
+async function initRtcConfig() {
+  try {
+    const res = await fetch(METERED_TURN_URL);
+    if (!res.ok) throw new Error('Metered REST: HTTP ' + res.status);
+    const iceServers = await res.json();
+    if (Array.isArray(iceServers) && iceServers.length) {
+      rtcConfig = {
+        iceServers: iceServers.concat({ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] })
+      };
+      console.log('Metered TURN конфиг получен (REST):', iceServers.length, 'элементов');
+    }
+  } catch (err) {
+    console.warn('Не смогли обновить креды Metered (REST), используем статичные:', err.message);
+  }
+}
 
 function initPeerConnection() {
   myPeerId = 'user_' + Math.random().toString(36).substring(2, 11);
   console.log('⚡ Spark User ID:', myPeerId);
   addSystemMessage(`Вы вошли в ${currentRoomId.toUpperCase()}`);
+
+  initRtcConfig(); // Cloudflare TURN креды (фолбэк — Metered/STUN)
 
   setupSupabaseRealtimeSignaling();
 }
@@ -1356,10 +1367,11 @@ function ensureConnectionTo(peerId) {
     const st = existing.pc.connectionState;
     if (st !== 'failed' && st !== 'closed') {
       // Не мешаем ICE. Перезванивает только инициатор, если offer завис >25с
+      // ИЛИ offer вообще ещё не улетал (offerSentAt = 0 — pc создан как респондер)
       if ((st === 'new' || st === 'connecting') &&
           myPeerId > peerId &&
-          existing.offerSentAt && (Date.now() - existing.offerSentAt) > 25000) {
-        console.log('Offer завис >25с, перезваниваем:', peerId);
+          (!existing.offerSentAt || (Date.now() - existing.offerSentAt) > 25000)) {
+        console.log('Offer завис или не отправлен, перезваниваем:', peerId);
       } else {
         return; // соединение живо или в процессе — даём ему время
       }
