@@ -1022,40 +1022,59 @@ function startRoomSession() {
 
 // ==================== PEERJS И СИГНАЛИНГ ====================
 
-function initPeerConnection() {
-  // Хост комнаты получает фиксированный предсказуемый ID: spark-room-v1-<код>-host
-  // Гости получают уникальный ID с суффиксом и сразу звонят хосту:
-  if (isHost) {
-    myPeerId = `${ROOM_PREFIX}${currentRoomId}-host`;
-  } else {
-    const randomSuffix = Math.random().toString(36).substring(2, 9);
-    myPeerId = `${ROOM_PREFIX}${currentRoomId}-${randomSuffix}`;
-  }
-
-  peer = new Peer(myPeerId, {
+function createPeerInstance(peerId) {
+  // Набор проверенных публичных PeerJS серверов
+  return new Peer(peerId, {
     debug: 1,
+    host: '0.peerjs.com',
+    port: 443,
+    path: '/',
+    secure: true,
+    pingInterval: 5000,
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' }
+        { urls: 'stun:stun.cloudflare.com:3478' }
       ]
     }
   });
+}
+
+function initPeerConnection() {
+  if (peer && !peer.destroyed) {
+    peer.destroy();
+  }
+
+  // Короткие, чистые ID без спецсимволов: spk_<комната>_<случайный_код>
+  const cleanRoom = currentRoomId.replace(/[^a-zA-Z0-9]/g, '');
+  if (isHost) {
+    myPeerId = `spk_${cleanRoom}_host`;
+  } else {
+    const randomSuffix = Math.random().toString(36).substring(2, 7);
+    myPeerId = `spk_${cleanRoom}_${randomSuffix}`;
+  }
+
+  try {
+    peer = createPeerInstance(myPeerId);
+  } catch (err) {
+    console.error('Ошибка инициализации Peer:', err);
+    peer = new Peer(myPeerId);
+  }
 
   peer.on('open', (id) => {
-    console.log('⚡ Spark Peer ID:', id);
+    console.log('⚡ Spark Peer ID готов:', id);
     addSystemMessage(`Вы вошли в ${currentRoomId.toUpperCase()}`);
 
     if (isHost) {
-      // Хост слушает входящие подключения и оповещает локальную сеть
       announcePresence();
     } else {
-      // Гость сразу целенаправленно подключается к хосту комнаты
-      const hostPeerId = `${ROOM_PREFIX}${currentRoomId}-host`;
-      tryConnectToPeer(hostPeerId);
+      const cleanRoom = currentRoomId.replace(/[^a-zA-Z0-9]/g, '');
+      const hostPeerId = `spk_${cleanRoom}_host`;
+      // Небольшая задержка перед подключением, чтобы сокет успел стабилизироваться
+      setTimeout(() => {
+        tryConnectToPeer(hostPeerId);
+      }, 500);
       announcePresence();
     }
   });
@@ -1083,18 +1102,31 @@ function initPeerConnection() {
     setupDataConnection(conn);
   });
 
+  peer.on('disconnected', () => {
+    console.warn('PeerJS отключился, переподключаемся...');
+    if (peer && !peer.destroyed) {
+      try { peer.reconnect(); } catch (e) {}
+    }
+  });
+
   peer.on('error', (err) => {
-    console.warn('PeerJS ошибка:', err.type, err);
+    console.warn('PeerJS статус:', err.type, err);
     if (err.type === 'unavailable-id') {
-      // Если ID хоста уже занят кем-то другим — входим как гость
       if (isHost) {
-        console.log('Комната уже существует, переключаемся в режим гостя...');
         isHost = false;
-        const randomSuffix = Math.random().toString(36).substring(2, 9);
-        myPeerId = `${ROOM_PREFIX}${currentRoomId}-${randomSuffix}`;
+        const cleanRoom = currentRoomId.replace(/[^a-zA-Z0-9]/g, '');
+        const randomSuffix = Math.random().toString(36).substring(2, 7);
+        myPeerId = `spk_${cleanRoom}_${randomSuffix}`;
         if (peer) peer.destroy();
-        setTimeout(initPeerConnection, 300);
+        setTimeout(initPeerConnection, 400);
       }
+    } else if (err.type === 'network' || err.type === 'server-error') {
+      // Автоматическое восстановление соединения при обрыве сети
+      setTimeout(() => {
+        if (peer && peer.disconnected && !peer.destroyed) {
+          try { peer.reconnect(); } catch (e) {}
+        }
+      }, 2000);
     } else if (err.type === 'peer-unavailable') {
       showToast('Хост комнаты не найден. Проверьте код комнаты.');
     }
