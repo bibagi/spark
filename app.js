@@ -1140,7 +1140,10 @@ function createPeerConnection(remotePeerId, isInitiator) {
     username: 'Участник',
     avatar: '',
     stream: null,
-    pendingCandidates: []
+    pendingCandidates: [],
+    negotiating: false,
+    restartCount: 0,
+    reconnectTimer: null
   };
   activePeers.set(remotePeerId, peerObj);
 
@@ -1167,34 +1170,58 @@ function createPeerConnection(remotePeerId, isInitiator) {
   pc.onconnectionstatechange = () => {
     const state = pc.connectionState;
     console.log(`Статус соединения с ${remotePeerId}:`, state);
-    // 'disconnected' — временное состояние, деться из-за него не кидаем.
-    // Реальный уход ловится событием presence 'leave'.
-    if (state === 'closed') {
-      handlePeerDisconnect(remotePeerId);
-    } else if (state === 'failed') {
-      if (!peerObj.retried) {
-        peerObj.retried = true;
-        console.log('Соединение не удалось, пробуем ещё раз:', remotePeerId);
-        setTimeout(() => retryPeerConnection(remotePeerId), 800);
-      } else {
+    if (state === 'connected' || state === 'completed') {
+      peerObj.restartCount = 0;
+      if (peerObj.reconnectTimer) {
+        clearTimeout(peerObj.reconnectTimer);
+        peerObj.reconnectTimer = null;
+      }
+    } else if (state === 'disconnected' || state === 'failed') {
+      // ICE-restart делает только инициатор (сторона с большим ID),
+      // чтобы не было гонки offer/answer. Одна попытка за раз, максимум 3
+      if (myPeerId > remotePeerId && peerObj.restartCount < 3) {
+        if (peerObj.reconnectTimer) clearTimeout(peerObj.reconnectTimer);
+        const delay = state === 'disconnected' ? 5000 : 2000;
+        peerObj.reconnectTimer = setTimeout(() => {
+          peerObj.reconnectTimer = null;
+          if (activePeers.get(remotePeerId) !== peerObj) return;
+          peerObj.restartCount++;
+          console.log(`ICE-restart для ${remotePeerId} (попытка ${peerObj.restartCount})`);
+          makeOffer(peerObj, remotePeerId, true);
+        }, delay);
+      } else if (state === 'failed') {
         handlePeerDisconnect(remotePeerId);
       }
+    } else if (state === 'closed') {
+      handlePeerDisconnect(remotePeerId);
     }
   };
 
   if (isInitiator) {
-    pc.onnegotiationneeded = async () => {
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        sendSignal(remotePeerId, 'offer', offer);
-      } catch (err) {
-        console.error('Ошибка создания offer:', err);
+    // Явная догока вместо onnegotiationneeded — гарантированно один offer,
+    // никаких дубликатов и ошибок "answer в stable state"
+    setTimeout(() => {
+      if (activePeers.get(remotePeerId) === peerObj) {
+        makeOffer(peerObj, remotePeerId, false);
       }
-    };
+    }, 300);
   }
 
   return pc;
+}
+
+async function makeOffer(peerObj, remotePeerId, iceRestart) {
+  if (!peerObj || peerObj.negotiating) return;
+  peerObj.negotiating = true;
+  try {
+    const offer = await peerObj.pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+    await peerObj.pc.setLocalDescription(offer);
+    sendSignal(remotePeerId, 'offer', offer);
+  } catch (err) {
+    console.error('Ошибка создания offer:', err);
+  } finally {
+    peerObj.negotiating = false;
+  }
 }
 
 async function handleIncomingSignal(payload) {
@@ -1224,6 +1251,8 @@ async function handleIncomingSignal(payload) {
     } else if (type === 'answer') {
       console.log('Получен answer от:', senderId);
       await pc.setRemoteDescription(new RTCSessionDescription(data));
+      peerObj.negotiating = false;
+      peerObj.restartCount = 0;
       flushPendingCandidates(peerObj);
     } else if (type === 'candidate' && data) {
       // Кандидат может прийти раньше offer/answer — буферизуем до setRemoteDescription
@@ -1307,25 +1336,12 @@ function handlePeerDisconnect(peerId) {
   const info = activePeers.get(peerId);
   if (info) {
     addSystemMessage(`${info.username || 'Участник'} вышел`);
+    if (info.reconnectTimer) { clearTimeout(info.reconnectTimer); }
     if (info.pc) { try { info.pc.close(); } catch (e) {} }
   }
   activePeers.delete(peerId);
   removeVideoCard(peerId);
   updateUsersCount();
-}
-
-function retryPeerConnection(remotePeerId) {
-  const old = activePeers.get(remotePeerId);
-  if (old) {
-    try { old.pc.close(); } catch (e) {}
-    activePeers.delete(remotePeerId);
-    removeVideoCard(remotePeerId);
-  }
-  // Инициатором всегда выступает сторона с большим ID.
-  // Меньшая сторона просто ждёт новый offer — handleIncomingSignal сам создаст свежий PC
-  if (myPeerId > remotePeerId) {
-    createPeerConnection(remotePeerId, true);
-  }
 }
 
 function addOrUpdateRemoteVideoCard(peerId, username, avatar, stream) {
