@@ -1020,17 +1020,21 @@ function startRoomSession() {
   initPeerConnection();
 }
 
-// ==================== PEERJS И СИГНАЛИНГ ====================
+// ==================== СИГНАЛИНГ ЧЕРЕЗ SUPABASE REALTIME (100% БЕЗ ПАДЕНИЙ PEERJS) ====================
+let realtimeChannel = null;
 
-function createPeerInstance(peerId) {
-  // Набор проверенных публичных PeerJS серверов
-  return new Peer(peerId, {
+function initPeerConnection() {
+  // Закрываем старые соединения
+  if (peer && !peer.destroyed) {
+    peer.destroy();
+  }
+  if (realtimeChannel && supabaseClient) {
+    supabaseClient.removeChannel(realtimeChannel);
+  }
+
+  // Создаем Peer без привязки к проблемным ID — PeerJS сам генерирует идеальный ID
+  peer = new Peer({
     debug: 1,
-    host: '0.peerjs.com',
-    port: 443,
-    path: '/',
-    secure: true,
-    pingInterval: 5000,
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -1039,47 +1043,18 @@ function createPeerInstance(peerId) {
       ]
     }
   });
-}
 
-function initPeerConnection() {
-  if (peer && !peer.destroyed) {
-    peer.destroy();
-  }
-
-  // Короткие, чистые ID без спецсимволов: spk_<комната>_<случайный_код>
-  const cleanRoom = currentRoomId.replace(/[^a-zA-Z0-9]/g, '');
-  if (isHost) {
-    myPeerId = `spk_${cleanRoom}_host`;
-  } else {
-    const randomSuffix = Math.random().toString(36).substring(2, 7);
-    myPeerId = `spk_${cleanRoom}_${randomSuffix}`;
-  }
-
-  try {
-    peer = createPeerInstance(myPeerId);
-  } catch (err) {
-    console.error('Ошибка инициализации Peer:', err);
-    peer = new Peer(myPeerId);
-  }
-
-  peer.on('open', (id) => {
-    console.log('⚡ Spark Peer ID готов:', id);
+  peer.on('open', (assignedPeerId) => {
+    myPeerId = assignedPeerId;
+    console.log('⚡ Наш Peer ID выделен сервером:', myPeerId);
     addSystemMessage(`Вы вошли в ${currentRoomId.toUpperCase()}`);
 
-    if (isHost) {
-      announcePresence();
-    } else {
-      const cleanRoom = currentRoomId.replace(/[^a-zA-Z0-9]/g, '');
-      const hostPeerId = `spk_${cleanRoom}_host`;
-      // Небольшая задержка перед подключением, чтобы сокет успел стабилизироваться
-      setTimeout(() => {
-        tryConnectToPeer(hostPeerId);
-      }, 500);
-      announcePresence();
-    }
+    // Подключаемся к комнате в Supabase Realtime
+    setupSupabaseRealtime();
   });
 
   peer.on('call', (call) => {
+    console.log('Входящий медиазвонок от:', call.peer);
     const streamToSend = getStreamToSend();
     call.answer(streamToSend);
 
@@ -1102,35 +1077,71 @@ function initPeerConnection() {
     setupDataConnection(conn);
   });
 
-  peer.on('disconnected', () => {
-    console.warn('PeerJS отключился, переподключаемся...');
-    if (peer && !peer.destroyed) {
-      try { peer.reconnect(); } catch (e) {}
+  peer.on('error', (err) => {
+    console.warn('PeerJS статус:', err.type);
+    if (err.type === 'peer-unavailable') {
+      console.log('Пир временно недоступен');
+    }
+  });
+}
+
+// Надежный сигналинг через Supabase: мгновенный обмен ID между всеми в комнате
+function setupSupabaseRealtime() {
+  if (!supabaseClient) {
+    announcePresence();
+    return;
+  }
+
+  const channelName = `spark_room_${currentRoomId.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+  realtimeChannel = supabaseClient.channel(channelName, {
+    config: {
+      presence: { key: myPeerId },
+      broadcast: { self: false }
     }
   });
 
-  peer.on('error', (err) => {
-    console.warn('PeerJS статус:', err.type, err);
-    if (err.type === 'unavailable-id') {
-      if (isHost) {
-        isHost = false;
-        const cleanRoom = currentRoomId.replace(/[^a-zA-Z0-9]/g, '');
-        const randomSuffix = Math.random().toString(36).substring(2, 7);
-        myPeerId = `spk_${cleanRoom}_${randomSuffix}`;
-        if (peer) peer.destroy();
-        setTimeout(initPeerConnection, 400);
-      }
-    } else if (err.type === 'network' || err.type === 'server-error') {
-      // Автоматическое восстановление соединения при обрыве сети
-      setTimeout(() => {
-        if (peer && peer.disconnected && !peer.destroyed) {
-          try { peer.reconnect(); } catch (e) {}
+  realtimeChannel
+    .on('presence', { event: 'sync' }, () => {
+      const state = realtimeChannel.presenceState();
+      console.log('👥 Участники в комнате:', state);
+      
+      // Находим всех остальных участников и звоним им
+      Object.keys(state).forEach((peerId) => {
+        if (peerId !== myPeerId && !activePeers.has(peerId)) {
+          console.log('Обнаружен участник, звоним:', peerId);
+          tryConnectToPeer(peerId);
         }
-      }, 2000);
-    } else if (err.type === 'peer-unavailable') {
-      showToast('Хост комнаты не найден. Проверьте код комнаты.');
-    }
-  });
+      });
+    })
+    .on('presence', { event: 'leave' }, ({ key }) => {
+      console.log('Участник покинул комнату:', key);
+      handlePeerDisconnect(key);
+    })
+    .on('broadcast', { event: 'join-announce' }, ({ payload }) => {
+      if (payload && payload.peerId && payload.peerId !== myPeerId && !activePeers.has(payload.peerId)) {
+        tryConnectToPeer(payload.peerId);
+      }
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        // Оповещаем комнату о своем присутствии с актуальным Peer ID
+        await realtimeChannel.track({
+          peerId: myPeerId,
+          username: currentUsername,
+          avatar: currentAvatar,
+          onlineAt: new Date().toISOString()
+        });
+
+        realtimeChannel.send({
+          type: 'broadcast',
+          event: 'join-announce',
+          payload: { peerId: myPeerId, username: currentUsername }
+        });
+      }
+    });
+
+  // Локальный канал на всякий случай для соседних вкладок
+  announcePresence();
 }
 
 function tryConnectToPeer(targetPeerId) {
