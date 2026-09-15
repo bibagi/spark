@@ -8,6 +8,7 @@ let supabase = null;
 try {
   if (window.supabase && SUPABASE_URL && !SUPABASE_ANON_KEY.includes('demo_key')) {
     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('✅ Supabase успешно подключен');
   }
 } catch (e) {
   console.warn('Supabase не сконфигурирован, работаем в автономном режиме');
@@ -936,6 +937,7 @@ createRoomForm.addEventListener('submit', (e) => {
   currentRoomId = roomVal;
   currentRoomPassword = passVal;
 
+  console.log('Создаем комнату:', currentRoomId, 'хост:', currentUsername);
   startRoomSession();
 });
 
@@ -1009,9 +1011,10 @@ function startRoomSession() {
   // Загружаем сохраненную историю чата для этой комнаты
   loadSavedRoomChat(currentRoomId);
 
-  // Регистрируем комнату в БД если мы хост
+  // Регистрируем комнату в БД если мы хост (асинхронно, не блокируя UI)
   if (isHost) {
-    dbRegisterRoom(currentRoomId, currentRoomName.textContent, Boolean(currentRoomPassword), currentUsername);
+    dbRegisterRoom(currentRoomId, currentRoomName.textContent, Boolean(currentRoomPassword), currentUsername)
+      .catch(err => console.warn('Регистрация в БД не удалась, продолжаем P2P:', err));
   }
 
   initPeerConnection();
