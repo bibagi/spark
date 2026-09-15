@@ -1039,6 +1039,11 @@ const rtcConfig = {
       ],
       username: 'd6f62ff8edb581396a792ac3',
       credential: '+95AmmEg+TD+4Ek1'
+    },
+    {
+      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
     }
   ]
 };
@@ -1217,7 +1222,7 @@ function createPeerConnection(remotePeerId, isInitiator) {
   };
 
   if (isInitiator) {
-    // Обе стороны могут звонить — коллизии offer решаются через glare+rollback
+    // Звонит только сторона с большим ID (единственный инициатор)
     setTimeout(() => {
       if (activePeers.get(remotePeerId) === peerObj) {
         makeOffer(peerObj, remotePeerId, false);
@@ -1262,15 +1267,11 @@ async function handleIncomingSignal(payload) {
   try {
     if (type === 'offer') {
       const haveLocalOffer = pc.localDescription && pc.localDescription.type === 'offer';
-      if (haveLocalOffer && peerObj.negotiating === false) {
-        // Коллизия: оба отправили offer. Меньшая сторона откатывается и отвечает,
-        // большая игнорирует чужой offer (его ответит другая сторона).
-        if (myPeerId > senderId) {
-          console.log('Glare: игнорируем чужой offer от', senderId);
-          return;
-        }
-        console.log('Glare: откатываем свой offer и отвечаем на offer от', senderId);
-        try { await pc.setLocalDescription({ type: 'rollback' }); } catch (e) {}
+      if (haveLocalOffer) {
+        // Инициатор всего один (большая сторона) — чужой offer это хвост
+        // старого цикла. Игнорируем, чтобы не ломать своё переговоры.
+        console.log('Игнорируем offer (у нас уже есть локальный offer):', senderId);
+        return;
       }
       console.log('Получен offer от:', senderId);
       peerObj.negotiating = false;
@@ -1319,9 +1320,9 @@ function flushPendingCandidates(peerObj) {
   peerObj.pendingCandidates = [];
 }
 
-// Страховочный дозвон: независимо от того, кто инициатор, каждые N секунд
-// проверяем, что ко всем присутствующим в комнате есть живое соединение.
-// Обе стороны умеют звонить — коллизии offer/answer решаются glare+rollback.
+// Страховочный дозвон: проверяем, что ко всем присутствующим есть живое соединение.
+// Звонит ТОЛЬКО сторона с большим ID (единственный инициатор — без коллизий offer).
+// Меньшая сторона стучится knock, если всё ещё нет соединения.
 function ensureConnectionTo(peerId) {
   if (peerId === myPeerId) return;
 
@@ -1329,9 +1330,9 @@ function ensureConnectionTo(peerId) {
   if (existing && existing.pc) {
     const st = existing.pc.connectionState;
     if (st !== 'failed' && st !== 'closed') {
-      // Не мешаем ICE: перезваниваем только если offer отправлен очень давно (>25с)
-      // и соединение так и не поднялось. 6 секунд — это свободное окно для ICE+ответа.
+      // Не мешаем ICE. Перезванивает только инициатор, если offer завис >25с
       if ((st === 'new' || st === 'connecting') &&
+          myPeerId > peerId &&
           existing.offerSentAt && (Date.now() - existing.offerSentAt) > 25000) {
         console.log('Offer завис >25с, перезваниваем:', peerId);
       } else {
@@ -1349,8 +1350,13 @@ function ensureConnectionTo(peerId) {
     updateUsersCount();
   }
 
-  console.log('Звонок к:', peerId);
-  createPeerConnection(peerId, true);
+  if (myPeerId > peerId) {
+    console.log('Звонок к:', peerId);
+    createPeerConnection(peerId, true);
+  } else {
+    console.log('Мы меньшая сторона, стучимся к:', peerId);
+    sendKnock(peerId);
+  }
 }
 
 function sendKnock(targetPeerId) {
