@@ -388,7 +388,7 @@ body {
 .media-preview-container {
   position: relative;
   width: 100%;
-  height: 175px;
+  height: 195px;
   background: var(--bg-input);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -413,12 +413,68 @@ body {
   color: var(--text-muted);
 }
 
+/* Поднимаем аватарку и иконку-заглушку в лобби выше, чтобы они не перекрывались кнопками */
+.preview-overlay img,
+.preview-overlay svg {
+  margin-bottom: 48px;
+}
+
 .preview-overlay img {
-  width: 80px;
-  height: 80px;
-  margin-bottom: 40px;
+  width: 76px;
+  height: 76px;
   border-radius: var(--radius-full);
   object-fit: cover;
+}
+
+/* Вкладки переключения Создать / Войти по коду */
+.lobby-tabs {
+  display: flex;
+  background: var(--bg-input);
+  border-radius: var(--radius-full);
+  padding: 4px;
+  gap: 4px;
+  margin: 12px 0 4px 0;
+}
+
+.lobby-tab {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.lobby-tab.active {
+  background: var(--bg-pill);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.lobby-tab:hover:not(.active) {
+  color: var(--text-main);
+}
+
+/* Бейдж кода комнаты в шапке звонка */
+.room-code-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-input);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.room-code-badge .code-value {
+  color: var(--text-main);
+  font-weight: 600;
+  letter-spacing: 0.5px;
 }
 
 .lobby-controls {
@@ -814,7 +870,8 @@ body {
 .chat-message {
   display: flex;
   gap: 10px;
-  max-width: 88%;
+  max-width: 92%;
+  width: 100%;
 }
 
 .chat-message.system {
@@ -856,6 +913,9 @@ body {
 .message-content-box {
   display: flex;
   flex-direction: column;
+  max-width: calc(100% - 42px);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .message-meta {
@@ -877,7 +937,9 @@ body {
   border-radius: var(--radius-md);
   font-size: 0.9rem;
   line-height: 1.45;
-  word-break: break-word;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  max-width: 100%;
   user-select: text;
 }
 
@@ -890,6 +952,10 @@ body {
   text-decoration: underline;
   text-underline-offset: 3px;
   font-weight: 500;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  display: inline-block;
+  max-width: 100%;
 }
 
 .link-preview-box {
@@ -900,18 +966,23 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .link-preview-icon {
   color: var(--text-muted);
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .link-preview-info {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+  flex: 1;
 }
 
 .link-preview-host {
@@ -920,6 +991,9 @@ body {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .link-preview-url {

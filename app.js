@@ -1,4 +1,18 @@
-// Spark Client — Полная поддержка аватарок, VAD (кто говорит), выбора устройств, сохранения данных и кастомных ошибок
+// ==================== КОНФИГУРАЦИЯ SUPABASE ====================
+// Бесплатный облачный бэкенд для комнат, проверки паролей и WebRTC сигналов
+const SUPABASE_URL = 'https://dgkpcynowgewoqvtbmkb.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRna3BjeW5vd2dld29xdnRibWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0NzA4NzMsImV4cCI6MjEwNTA0Njg3M30.2yJ8-0NCbAv7sMFb3phXFsMVkb8FH7YEzWZtmQ2z1ww';
+
+// Инициализация Supabase клиента (с fallback на mesh/peerjs, если ключи еще не заменены)
+let supabase = null;
+try {
+  if (window.supabase && SUPABASE_URL && !SUPABASE_ANON_KEY.includes('demo_key')) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch (e) {
+  console.warn('Supabase не сконфигурирован, работаем в автономном режиме');
+}
+
 const ROOM_PREFIX = 'spark-room-v1-';
 
 // Ключи в LocalStorage
@@ -50,13 +64,24 @@ const activePeers = new Map();
 const toastContainer = document.getElementById('toast-container');
 const lobbyScreen = document.getElementById('lobby-screen');
 const roomScreen = document.getElementById('room-screen');
-const joinForm = document.getElementById('join-form');
 const usernameInput = document.getElementById('username-input');
-const roomInput = document.getElementById('room-input');
 const usernameWrapper = document.getElementById('username-wrapper');
-const roomWrapper = document.getElementById('room-wrapper');
 const usernameError = document.getElementById('username-error');
-const roomError = document.getElementById('room-error');
+
+// Вкладки и формы
+const tabCreateBtn = document.getElementById('tab-create-btn');
+const tabJoinBtn = document.getElementById('tab-join-btn');
+const createRoomForm = document.getElementById('create-room-form');
+const joinCodeForm = document.getElementById('join-code-form');
+
+const createRoomInput = document.getElementById('create-room-input');
+const createRoomPassword = document.getElementById('create-room-password');
+const createRoomWrapper = document.getElementById('create-room-wrapper');
+
+const joinCodeInput = document.getElementById('join-code-input');
+const joinCodePassword = document.getElementById('join-code-password');
+const joinCodeWrapper = document.getElementById('join-code-wrapper');
+const joinPasswordWrapper = document.getElementById('join-password-wrapper');
 
 const randomRoomBtn = document.getElementById('random-room-btn');
 const avatarPreviewBtn = document.getElementById('avatar-preview-btn');
@@ -73,6 +98,9 @@ const lobbyToggleCam = document.getElementById('lobby-toggle-cam');
 const lobbyOpenSettingsBtn = document.getElementById('lobby-open-settings-btn');
 
 const currentRoomName = document.getElementById('current-room-name');
+const currentRoomCode = document.getElementById('current-room-code');
+const copyCodeBtn = document.getElementById('copy-code-btn');
+const copyCodeBtnText = document.getElementById('copy-code-btn-text');
 const copyLinkBtn = document.getElementById('copy-link-btn');
 const copyBtnText = document.getElementById('copy-btn-text');
 const roomSettingsBtn = document.getElementById('room-settings-btn');
@@ -114,9 +142,20 @@ const leaveConfirmModal = document.getElementById('leave-confirm-modal');
 const cancelLeaveBtn = document.getElementById('cancel-leave-btn');
 const confirmLeaveBtn = document.getElementById('confirm-leave-btn');
 
-// История комнат
+// Модалка очистки истории
+const clearHistoryModal = document.getElementById('clear-history-modal');
+const cancelClearHistoryBtn = document.getElementById('cancel-clear-history-btn');
+const confirmClearHistoryBtn = document.getElementById('confirm-clear-history-btn');
+
+// История комнат и онлайн список
 const historyList = document.getElementById('history-list');
+const activeRoomsList = document.getElementById('active-rooms-list');
+const refreshRoomsBtn = document.getElementById('refresh-rooms-btn');
 const clearHistoryBtn = document.getElementById('clear-history-btn');
+
+// Пароль текущей комнаты (если установлен хостом)
+let currentRoomPassword = '';
+let isHost = false;
 
 let unreadCount = 0;
 
@@ -146,8 +185,10 @@ function showToast(message) {
 }
 
 function clearFieldErrors() {
-  usernameWrapper.classList.remove('error');
-  roomWrapper.classList.remove('error');
+  if (usernameWrapper) usernameWrapper.classList.remove('error');
+  if (createRoomWrapper) createRoomWrapper.classList.remove('error');
+  if (joinCodeWrapper) joinCodeWrapper.classList.remove('error');
+  if (joinPasswordWrapper) joinPasswordWrapper.classList.remove('error');
 }
 
 // ==================== ИНИЦИАЛИЗАЦИЯ И ВОССТАНОВЛЕНИЕ ДАННЫХ ====================
@@ -175,18 +216,168 @@ function restoreUserData() {
 
   const urlParams = new URLSearchParams(window.location.search);
   const roomParam = urlParams.get('room');
-  if (roomParam) {
-    roomInput.value = roomParam;
+  const codeParam = urlParams.get('code');
+  if (codeParam) {
+    switchTab('join');
+    joinCodeInput.value = codeParam;
+  } else if (roomParam) {
+    createRoomInput.value = roomParam;
   } else {
     const lastRoom = localStorage.getItem(STORAGE_KEYS.LAST_ROOM);
     if (lastRoom) {
-      roomInput.value = lastRoom;
+      createRoomInput.value = lastRoom;
     } else {
       generateRandomRoom();
     }
   }
 
   renderRoomHistory();
+}
+
+// Переключение вкладок лобби
+function switchTab(tab) {
+  if (tab === 'create') {
+    tabCreateBtn.classList.add('active');
+    tabJoinBtn.classList.remove('active');
+    createRoomForm.style.display = 'flex';
+    joinCodeForm.style.display = 'none';
+  } else {
+    tabJoinBtn.classList.add('active');
+    tabCreateBtn.classList.remove('active');
+    joinCodeForm.style.display = 'flex';
+    createRoomForm.style.display = 'none';
+  }
+}
+
+tabCreateBtn.addEventListener('click', () => switchTab('create'));
+tabJoinBtn.addEventListener('click', () => switchTab('join'));
+
+// ==================== ОНЛАЙН БАЗА КОМНАТ (SUPABASE / REALTIME) ====================
+
+// Регистрация комнаты в базе данных
+async function dbRegisterRoom(code, name, hasPassword, hostUser) {
+  if (!supabase) return;
+  try {
+    await supabase.from('spark_rooms').upsert({
+      code: code.toUpperCase(),
+      name: name,
+      has_password: Boolean(hasPassword),
+      password: currentRoomPassword || '',
+      host_name: hostUser,
+      created_at: new Date().toISOString(),
+      active: true
+    }, { onConflict: 'code' });
+  } catch (err) {
+    console.warn('DB Register error:', err);
+  }
+}
+
+// Проверка существования комнаты и пароля в базе
+async function dbValidateRoom(code, enteredPassword) {
+  if (!supabase) {
+    // В режиме без БД (fallback) возвращаем true
+    return { valid: true };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('spark_rooms')
+      .select('*')
+      .eq('code', code.toUpperCase())
+      .single();
+
+    if (error || !data) {
+      return { valid: false, reason: 'Комната с таким кодом не найдена. Проверьте код.' };
+    }
+
+    if (data.has_password && data.password) {
+      if (data.password !== enteredPassword) {
+        return { valid: false, reason: 'Неверный пароль комнаты.' };
+      }
+    }
+
+    return { valid: true, room: data };
+  } catch (err) {
+    console.warn('DB Validate error:', err);
+    return { valid: true };
+  }
+}
+
+// Загрузка списка комнат онлайн из БД
+async function fetchOnlineRooms() {
+  if (!activeRoomsList) return;
+
+  if (!supabase) {
+    activeRoomsList.innerHTML = `
+      <div class="history-item" style="cursor: default; opacity: 0.85;">
+        <div class="history-item-info">
+          <span class="history-room-name">Режим прямого P2P</span>
+          <span class="history-item-meta">Создайте комнату слева или введите код хоста</span>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('spark_rooms')
+      .select('*')
+      .eq('active', true)
+      .order('created_at', { ascending: false })
+      .limit(15);
+
+    if (error || !data || data.length === 0) {
+      activeRoomsList.innerHTML = `<div class="history-empty">Сейчас нет активных комнат. Будьте первым!</div>`;
+      return;
+    }
+
+    activeRoomsList.innerHTML = '';
+    data.forEach(room => {
+      const el = document.createElement('div');
+      el.className = 'history-item';
+      const lockIcon = room.has_password ? '🔒 ' : '';
+
+      el.innerHTML = `
+        <div class="history-item-info">
+          <span class="history-room-name">${lockIcon}${escapeHtml(room.name || room.code)}</span>
+          <span class="history-item-meta">Код: <b>${escapeHtml(room.code)}</b> • Хост: ${escapeHtml(room.host_name || 'Хост')}</span>
+        </div>
+        <div class="history-join-icon">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+            <polyline points="12 5 19 12 12 19"></polyline>
+          </svg>
+        </div>
+      `;
+
+      el.addEventListener('click', () => {
+        switchTab('join');
+        joinCodeInput.value = room.code;
+        clearFieldErrors();
+        joinCodeForm.scrollIntoView({ behavior: 'smooth' });
+      });
+
+      activeRoomsList.appendChild(el);
+    });
+  } catch (err) {
+    activeRoomsList.innerHTML = `<div class="history-empty">Ошибка загрузки комнат</div>`;
+  }
+}
+
+if (refreshRoomsBtn) {
+  refreshRoomsBtn.addEventListener('click', () => {
+    fetchOnlineRooms();
+    showToast('Список комнат обновлен');
+  });
+}
+
+// Удаление / деактивация комнаты при выходе хоста
+async function dbDeactivateRoom(code) {
+  if (!supabase || !isHost) return;
+  try {
+    await supabase.from('spark_rooms').update({ active: false }).eq('code', code.toUpperCase());
+  } catch (e) {}
 }
 
 // ==================== ИСТОРИЯ КОМНАТ И СОХРАНЕНИЕ ЧАТА ====================
@@ -246,22 +437,36 @@ function renderRoomHistory() {
     `;
 
     el.addEventListener('click', () => {
-      roomInput.value = item.roomId;
-      roomWrapper.classList.remove('error');
-      // Скроллим форму к просмотру, если мобильный экран
-      joinForm.scrollIntoView({ behavior: 'smooth' });
+      switchTab('create');
+      createRoomInput.value = item.roomId;
+      clearFieldErrors();
+      createRoomForm.scrollIntoView({ behavior: 'smooth' });
     });
 
     historyList.appendChild(el);
   });
 }
 
+// Кастомное модальное окно очистки истории
 clearHistoryBtn.addEventListener('click', () => {
-  if (confirm('Очистить всю историю комнат?')) {
-    localStorage.removeItem(STORAGE_KEYS.ROOM_HISTORY);
-    renderRoomHistory();
-    showToast('История комнат очищена');
+  clearHistoryModal.classList.add('active');
+});
+
+cancelClearHistoryBtn.addEventListener('click', () => {
+  clearHistoryModal.classList.remove('active');
+});
+
+clearHistoryModal.addEventListener('click', (e) => {
+  if (e.target === clearHistoryModal) {
+    clearHistoryModal.classList.remove('active');
   }
+});
+
+confirmClearHistoryBtn.addEventListener('click', () => {
+  localStorage.removeItem(STORAGE_KEYS.ROOM_HISTORY);
+  renderRoomHistory();
+  clearHistoryModal.classList.remove('active');
+  showToast('История комнат очищена');
 });
 
 function getSavedRoomMessages(roomId) {
@@ -348,8 +553,16 @@ usernameInput.addEventListener('input', () => {
   localStorage.setItem(STORAGE_KEYS.USERNAME, currentUsername);
 });
 
-roomInput.addEventListener('input', () => {
-  roomWrapper.classList.remove('error');
+createRoomInput.addEventListener('input', () => {
+  if (createRoomWrapper) createRoomWrapper.classList.remove('error');
+});
+
+joinCodeInput.addEventListener('input', () => {
+  if (joinCodeWrapper) joinCodeWrapper.classList.remove('error');
+});
+
+joinCodePassword.addEventListener('input', () => {
+  if (joinPasswordWrapper) joinPasswordWrapper.classList.remove('error');
 });
 
 function generateRandomRoom() {
@@ -357,7 +570,7 @@ function generateRandomRoom() {
   const num = Math.floor(100 + Math.random() * 900);
   const w1 = words[Math.floor(Math.random() * words.length)];
   const w2 = words[Math.floor(Math.random() * words.length)];
-  roomInput.value = `${w1}-${w2}-${num}`;
+  createRoomInput.value = `${w1}-${w2}-${num}`;
 }
 
 randomRoomBtn.addEventListener('click', generateRandomRoom);
@@ -692,45 +905,97 @@ modalSaveBtn.addEventListener('click', async () => {
   showToast('Настройки устройств обновлены');
 });
 
-// ==================== ВХОД В КОМНАТУ ====================
+// ==================== СОЗДАНИЕ И ПОДКЛЮЧЕНИЕ К КОМНАТЕ ====================
 
-joinForm.addEventListener('submit', (e) => {
+// Форма 1: Создание комнаты хостом
+createRoomForm.addEventListener('submit', (e) => {
   e.preventDefault();
   clearFieldErrors();
 
   const usernameVal = usernameInput.value.trim();
-  const roomVal = roomInput.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  const roomVal = createRoomInput.value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+  const passVal = createRoomPassword.value.trim();
 
   let hasError = false;
-
   if (!usernameVal) {
     usernameWrapper.classList.add('error');
     hasError = true;
   }
   if (!roomVal) {
-    roomWrapper.classList.add('error');
+    createRoomWrapper.classList.add('error');
     hasError = true;
   }
 
   if (hasError) {
-    showToast('Пожалуйста, заполните необходимые поля');
+    showToast('Заполните обязательные поля');
     return;
   }
 
+  isHost = true;
   currentUsername = usernameVal;
   currentRoomId = roomVal;
+  currentRoomPassword = passVal;
 
+  startRoomSession();
+});
+
+// Форма 2: Подключение по коду комнаты
+joinCodeForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearFieldErrors();
+
+  const usernameVal = usernameInput.value.trim();
+  const codeVal = joinCodeInput.value.trim().toUpperCase().replace(/\s+/g, '');
+  const passVal = joinCodePassword.value.trim();
+
+  let hasError = false;
+  if (!usernameVal) {
+    usernameWrapper.classList.add('error');
+    hasError = true;
+  }
+  if (!codeVal) {
+    joinCodeWrapper.classList.add('error');
+    hasError = true;
+  }
+
+  if (hasError) {
+    showToast('Введите код комнаты хоста');
+    return;
+  }
+
+  // Проверяем валидность комнаты через базу Supabase
+  const validation = await dbValidateRoom(codeVal, passVal);
+  if (!validation.valid) {
+    showToast(validation.reason || 'Комната не найдена');
+    if (validation.reason && validation.reason.includes('пароль')) {
+      joinPasswordWrapper.classList.add('error');
+    } else {
+      joinCodeWrapper.classList.add('error');
+    }
+    return;
+  }
+
+  isHost = false;
+  currentUsername = usernameVal;
+  currentRoomId = codeVal.toLowerCase();
+  currentRoomPassword = passVal;
+
+  startRoomSession();
+});
+
+function startRoomSession() {
   localStorage.setItem(STORAGE_KEYS.USERNAME, currentUsername);
   localStorage.setItem(STORAGE_KEYS.LAST_ROOM, currentRoomId);
   saveRoomToHistory(currentRoomId);
 
-  const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?room=${currentRoomId}`;
+  const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?code=${encodeURIComponent(currentRoomId)}`;
   window.history.pushState({ path: newUrl }, '', newUrl);
 
   lobbyScreen.classList.remove('active');
   roomScreen.classList.add('active');
 
   currentRoomName.textContent = currentRoomId;
+  currentRoomCode.textContent = currentRoomId.toUpperCase();
   localParticipantName.textContent = `${currentUsername} (Вы)`;
   localAvatarLetter.textContent = currentUsername.slice(0, 2).toUpperCase();
 
@@ -744,28 +1009,52 @@ joinForm.addEventListener('submit', (e) => {
   // Загружаем сохраненную историю чата для этой комнаты
   loadSavedRoomChat(currentRoomId);
 
+  // Регистрируем комнату в БД если мы хост
+  if (isHost) {
+    dbRegisterRoom(currentRoomId, currentRoomName.textContent, Boolean(currentRoomPassword), currentUsername);
+  }
+
   initPeerConnection();
-});
+}
 
 // ==================== PEERJS И СИГНАЛИНГ ====================
 
 function initPeerConnection() {
-  const randomSuffix = Math.random().toString(36).substring(2, 9);
-  myPeerId = `${ROOM_PREFIX}${currentRoomId}-${randomSuffix}`;
+  // Хост комнаты получает фиксированный предсказуемый ID: spark-room-v1-<код>-host
+  // Гости получают уникальный ID с суффиксом и сразу звонят хосту:
+  if (isHost) {
+    myPeerId = `${ROOM_PREFIX}${currentRoomId}-host`;
+  } else {
+    const randomSuffix = Math.random().toString(36).substring(2, 9);
+    myPeerId = `${ROOM_PREFIX}${currentRoomId}-${randomSuffix}`;
+  }
 
   peer = new Peer(myPeerId, {
     debug: 1,
     config: {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
       ]
     }
   });
 
-  peer.on('open', () => {
-    addSystemMessage(`Вы вошли в ${currentRoomId}`);
-    announcePresence();
+  peer.on('open', (id) => {
+    console.log('⚡ Spark Peer ID:', id);
+    addSystemMessage(`Вы вошли в ${currentRoomId.toUpperCase()}`);
+
+    if (isHost) {
+      // Хост слушает входящие подключения и оповещает локальную сеть
+      announcePresence();
+    } else {
+      // Гость сразу целенаправленно подключается к хосту комнаты
+      const hostPeerId = `${ROOM_PREFIX}${currentRoomId}-host`;
+      tryConnectToPeer(hostPeerId);
+      announcePresence();
+    }
   });
 
   peer.on('call', (call) => {
@@ -790,12 +1079,31 @@ function initPeerConnection() {
   peer.on('connection', (conn) => {
     setupDataConnection(conn);
   });
+
+  peer.on('error', (err) => {
+    console.warn('PeerJS ошибка:', err.type, err);
+    if (err.type === 'unavailable-id') {
+      // Если ID хоста уже занят кем-то другим — входим как гость
+      if (isHost) {
+        console.log('Комната уже существует, переключаемся в режим гостя...');
+        isHost = false;
+        const randomSuffix = Math.random().toString(36).substring(2, 9);
+        myPeerId = `${ROOM_PREFIX}${currentRoomId}-${randomSuffix}`;
+        if (peer) peer.destroy();
+        setTimeout(initPeerConnection, 300);
+      }
+    } else if (err.type === 'peer-unavailable') {
+      showToast('Хост комнаты не найден. Проверьте код комнаты.');
+    }
+  });
 }
 
 function tryConnectToPeer(targetPeerId) {
   if (targetPeerId === myPeerId || activePeers.has(targetPeerId)) return;
 
+  console.log('Подключаемся к пиру:', targetPeerId);
   const conn = peer.connect(targetPeerId, {
+    reliable: true,
     metadata: { username: currentUsername, avatar: currentAvatar }
   });
 
@@ -807,15 +1115,17 @@ function tryConnectToPeer(targetPeerId) {
       metadata: { username: currentUsername, avatar: currentAvatar }
     });
 
-    call.on('stream', (remoteStream) => {
-      handleRemoteStream(targetPeerId, remoteStream);
-    });
+    if (call) {
+      call.on('stream', (remoteStream) => {
+        handleRemoteStream(targetPeerId, remoteStream);
+      });
 
-    call.on('close', () => {
-      handlePeerDisconnect(targetPeerId);
-    });
+      call.on('close', () => {
+        handlePeerDisconnect(targetPeerId);
+      });
 
-    activePeers.set(targetPeerId, { call, conn, username: 'Участник', avatar: '', stream: null });
+      activePeers.set(targetPeerId, { call, conn, username: 'Участник', avatar: '', stream: null });
+    }
   }
 }
 
@@ -826,14 +1136,16 @@ function setupDataConnection(conn) {
     existing.conn = conn;
     activePeers.set(peerId, existing);
 
-    // Отправляем профиль: ник, аватар, медиа-состояние
+    // Отправляем профиль: ник, аватар, пароль (если подключается гость к хосту)
     conn.send({
       type: 'handshake',
       username: currentUsername,
       avatar: currentAvatar,
       audio: isAudioEnabled,
       video: isVideoEnabled,
-      screen: isScreenSharing
+      screen: isScreenSharing,
+      isHost: isHost,
+      password: currentRoomPassword
     });
 
     const streamToSend = getStreamToSend();
@@ -863,6 +1175,17 @@ function handleIncomingData(senderId, data) {
   if (!data) return;
 
   if (data.type === 'handshake') {
+    // Если мы хост и у нас установлен пароль — сверяем
+    if (isHost && currentRoomPassword) {
+      if (data.password !== currentRoomPassword) {
+        connSend(senderId, { type: 'auth-failed', reason: 'Неверный пароль комнаты' });
+        setTimeout(() => {
+          handlePeerDisconnect(senderId);
+        }, 500);
+        return;
+      }
+    }
+
     const peerInfo = activePeers.get(senderId) || {};
     peerInfo.username = data.username || 'Участник';
     peerInfo.avatar = data.avatar || '';
@@ -877,7 +1200,24 @@ function handleIncomingData(senderId, data) {
         connSend(senderId, { type: 'peer-hint', peerId: otherId });
       }
     });
+  } else if (data.type === 'auth-failed') {
+    showToast(data.reason || 'Ошибка авторизации');
+    setTimeout(() => {
+      if (peer) peer.destroy();
+      window.location.href = window.location.pathname;
+    }, 1500);
   } else if (data.type === 'profile-update') {
+    const peerInfo = activePeers.get(senderId);
+    if (peerInfo) {
+      peerInfo.username = data.username || peerInfo.username;
+      peerInfo.avatar = data.avatar || peerInfo.avatar;
+      updatePeerCardInfo(senderId, peerInfo.username, peerInfo.avatar);
+    }
+  } else if (data.type === 'peer-hint') {
+    if (data.peerId && data.peerId !== myPeerId && !activePeers.has(data.peerId)) {
+      tryConnectToPeer(data.peerId);
+    }
+  } else if (data.type === 'chat') {
     const peerInfo = activePeers.get(senderId);
     if (peerInfo) {
       peerInfo.username = data.username || peerInfo.username;
@@ -1234,9 +1574,26 @@ leaveConfirmModal.addEventListener('click', (e) => {
   }
 });
 
-confirmLeaveBtn.addEventListener('click', () => {
+confirmLeaveBtn.addEventListener('click', async () => {
+  if (isHost) {
+    await dbDeactivateRoom(currentRoomId);
+  }
   if (peer) peer.destroy();
   window.location.href = window.location.pathname;
+});
+
+// Копирование кода комнаты
+copyCodeBtn.addEventListener('click', async () => {
+  const code = currentRoomId.toUpperCase();
+  try {
+    await navigator.clipboard.writeText(code);
+    copyCodeBtnText.textContent = 'Скопирован!';
+    setTimeout(() => {
+      copyCodeBtnText.textContent = 'Код';
+    }, 2000);
+  } catch (err) {
+    prompt('Код комнаты:', code);
+  }
 });
 
 copyLinkBtn.addEventListener('click', async () => {
@@ -1380,3 +1737,4 @@ function renderChatMessage(msg) {
 // Запуск при старте
 restoreUserData();
 initLobbyPreview();
+fetchOnlineRooms();
