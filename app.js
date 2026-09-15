@@ -1022,17 +1022,23 @@ function startRoomSession() {
 // ==================== ЧИСТЫЙ НАДЕЖНЫЙ WEBRTC ЧЕРЕЗ SUPABASE REALTIME (БЕЗ PEERJS И БЕЗ CORS) ====================
 let realtimeChannel = null;
 
-// STUN серверы Google для прямого P2P соединения
-// TURN-реле добавлены, чтобы соединение работало даже при симметричном NAT (мобильная сеть / строгие файрволы)
+// STUN серверы Google + Metered для прямого P2P соединения
+// TURN-реле Metered (личные креды) — чтобы соединение работало даже при
+// симметричном NAT (мобильная сеть / строгие файрволы) без VPN
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun.metered.ca:80' },
     {
-      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: [
+        'turn:turn.metered.ca:80',
+        'turn:turn.metered.ca:443',
+        'turn:turn.metered.ca:80?transport=tcp'
+      ],
+      username: 'd6f62ff8edb581396a792ac3',
+      credential: '+95AmmEg+TD+4Ek1'
     }
   ]
 };
@@ -1275,6 +1281,11 @@ async function handleIncomingSignal(payload) {
       flushPendingCandidates(peerObj);
     } else if (type === 'answer') {
       console.log('Получен answer от:', senderId);
+      const haveLocalOffer = pc.localDescription && pc.localDescription.type === 'offer';
+      if (!haveLocalOffer) {
+        console.log('Пропускаем answer вне диапазона (от старого цикла)');
+        return;
+      }
       await pc.setRemoteDescription(new RTCSessionDescription(data));
       peerObj.negotiating = false;
       peerObj.restartCount = 0;
@@ -1318,12 +1329,13 @@ function ensureConnectionTo(peerId) {
   if (existing && existing.pc) {
     const st = existing.pc.connectionState;
     if (st !== 'failed' && st !== 'closed') {
-      // Соединение живое или в процессе. Единственный случай, когда перезваниваем:
-      // offer отправлен давно (>6с), а answer/ICE так и не дошёл — застревание.
-      if (st === 'connecting' && existing.offerSentAt && (Date.now() - existing.offerSentAt) > 6000) {
-        console.log('Offer завис >6с, перезваниваем:', peerId);
+      // Не мешаем ICE: перезваниваем только если offer отправлен очень давно (>25с)
+      // и соединение так и не поднялось. 6 секунд — это свободное окно для ICE+ответа.
+      if ((st === 'new' || st === 'connecting') &&
+          existing.offerSentAt && (Date.now() - existing.offerSentAt) > 25000) {
+        console.log('Offer завис >25с, перезваниваем:', peerId);
       } else {
-        return;
+        return; // соединение живо или в процессе — даём ему время
       }
     }
   }
