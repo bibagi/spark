@@ -1023,11 +1023,17 @@ function startRoomSession() {
 let realtimeChannel = null;
 
 // STUN серверы Google для прямого P2P соединения
+// TURN-реле добавлены, чтобы соединение работало даже при симметричном NAT (мобильная сеть / строгие файрволы)
 const rtcConfig = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' }
+    { urls: 'stun:stun2.l.google.com:19302' },
+    {
+      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 };
 
@@ -1133,7 +1139,8 @@ function createPeerConnection(remotePeerId, isInitiator) {
     pc,
     username: 'Участник',
     avatar: '',
-    stream: null
+    stream: null,
+    pendingCandidates: []
   };
   activePeers.set(remotePeerId, peerObj);
 
@@ -1158,9 +1165,20 @@ function createPeerConnection(remotePeerId, isInitiator) {
   };
 
   pc.onconnectionstatechange = () => {
-    console.log(`Статус соединения с ${remotePeerId}:`, pc.connectionState);
-    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+    const state = pc.connectionState;
+    console.log(`Статус соединения с ${remotePeerId}:`, state);
+    // 'disconnected' — временное состояние, деться из-за него не кидаем.
+    // Реальный уход ловится событием presence 'leave'.
+    if (state === 'closed') {
       handlePeerDisconnect(remotePeerId);
+    } else if (state === 'failed') {
+      if (!peerObj.retried) {
+        peerObj.retried = true;
+        console.log('Соединение не удалось, пробуем ещё раз:', remotePeerId);
+        setTimeout(() => retryPeerConnection(remotePeerId), 800);
+      } else {
+        handlePeerDisconnect(remotePeerId);
+      }
     }
   };
 
@@ -1202,15 +1220,34 @@ async function handleIncomingSignal(payload) {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       sendSignal(senderId, 'answer', answer);
+      flushPendingCandidates(peerObj);
     } else if (type === 'answer') {
       console.log('Получен answer от:', senderId);
       await pc.setRemoteDescription(new RTCSessionDescription(data));
+      flushPendingCandidates(peerObj);
     } else if (type === 'candidate' && data) {
-      await pc.addIceCandidate(new RTCIceCandidate(data));
+      // Кандидат может прийти раньше offer/answer — буферизуем до setRemoteDescription
+      if (pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(data));
+      } else {
+        console.log('Буферизуем ICE-кандидата от:', senderId);
+        peerObj.pendingCandidates.push(data);
+      }
     }
   } catch (err) {
     console.warn('Ошибка обработки WebRTC сигнала:', err);
   }
+}
+
+function flushPendingCandidates(peerObj) {
+  if (!peerObj.pc || !peerObj.pc.remoteDescription || !peerObj.pendingCandidates.length) return;
+  console.log('Применяем отложенных ICE-кандидатов:', peerObj.pendingCandidates.length);
+  peerObj.pendingCandidates.forEach((data) => {
+    peerObj.pc.addIceCandidate(new RTCIceCandidate(data)).catch((err) => {
+      console.warn('Ошибка добавления отложенного кандидата:', err);
+    });
+  });
+  peerObj.pendingCandidates = [];
 }
 
 function broadcastData(data) {
@@ -1275,6 +1312,20 @@ function handlePeerDisconnect(peerId) {
   activePeers.delete(peerId);
   removeVideoCard(peerId);
   updateUsersCount();
+}
+
+function retryPeerConnection(remotePeerId) {
+  const old = activePeers.get(remotePeerId);
+  if (old) {
+    try { old.pc.close(); } catch (e) {}
+    activePeers.delete(remotePeerId);
+    removeVideoCard(remotePeerId);
+  }
+  // Инициатором всегда выступает сторона с большим ID.
+  // Меньшая сторона просто ждёт новый offer — handleIncomingSignal сам создаст свежий PC
+  if (myPeerId > remotePeerId) {
+    createPeerConnection(remotePeerId, true);
+  }
 }
 
 function addOrUpdateRemoteVideoCard(peerId, username, avatar, stream) {
