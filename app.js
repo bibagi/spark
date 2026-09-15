@@ -1192,6 +1192,14 @@ function createPeerConnection(remotePeerId, isInitiator) {
     }
   };
 
+  pc.onicecandidateerror = (event) => {
+    console.warn(`[ICE] Ошибка кандидата (${remotePeerId}):`, event.errorCode, event.errorText || event.url || '');
+  };
+
+  pc.onicegatheringstatechange = () => {
+    console.log(`[ICE] Состояние сбора (${remotePeerId}):`, pc.iceGatheringState);
+  };
+
   pc.onconnectionstatechange = () => {
     const state = pc.connectionState;
     console.log(`Статус соединения с ${remotePeerId}:`, state);
