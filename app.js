@@ -30,7 +30,6 @@ const STORAGE_KEYS = {
 };
 
 // Состояния приложения
-let peer = null;
 let localStream = null;
 let screenStream = null;
 let isAudioEnabled = true;
@@ -58,7 +57,7 @@ let localAnalyser = null;
 let localDataArray = null;
 let vadInterval = null;
 
-// Активные соединения: peerId -> { call, conn, username, avatar, stream, analyser, dataArray }
+// Активные соединения: peerId -> { pc, username, avatar, stream, analyser, dataArray }
 const activePeers = new Map();
 
 // DOM элементы
@@ -533,9 +532,9 @@ function handleAvatarUpload(file) {
     applyAvatarToUI(currentAvatar);
     showToast('Аватар успешно сохранен');
 
-    // Если уже в комнате — транслируем обновление пирам
-    if (peer && !peer.destroyed) {
-      broadcastData({ type: 'profile-update', avatar: currentAvatar, username: currentUsername });
+    // Если уже в комнате — транслируем обновление пирам через Realtime presence
+    if (realtimeChannel) {
+      realtimeChannel.track({ peerId: myPeerId, username: currentUsername, avatar: currentAvatar, joinedAt: Date.now() });
     }
   };
   reader.readAsDataURL(file);
@@ -669,7 +668,7 @@ function setupLocalVAD(stream) {
     localAnalyser.fftSize = 512;
     localAnalyser.smoothingTimeConstant = 0.4;
 
-    // Цепочка: source -> gain -> destination (для отправки в PeerJS)
+    // Цепочка: source -> gain -> destination (для отправки через WebRTC)
     //         gain -> analyser (для детекции речи VAD и громкости)
     localSourceNode.connect(localGainNode);
     localGainNode.connect(localDestinationNode);
@@ -855,8 +854,8 @@ async function switchDevices(newMicId, newCamId, newSpeakerId) {
     const newVideoTrack = localStream.getVideoTracks()[0];
 
     activePeers.forEach((peerObj) => {
-      if (peerObj.call && peerObj.call.peerConnection) {
-        const senders = peerObj.call.peerConnection.getSenders();
+      if (peerObj.pc) {
+        const senders = peerObj.pc.getSenders();
         if (newAudioTrack) {
           const audioSender = senders.find(s => s.track && s.track.kind === 'audio');
           if (audioSender) audioSender.replaceTrack(newAudioTrack);
@@ -1020,80 +1019,33 @@ function startRoomSession() {
   initPeerConnection();
 }
 
-// ==================== СИГНАЛИНГ ЧЕРЕЗ SUPABASE REALTIME (100% БЕЗ ПАДЕНИЙ PEERJS) ====================
+// ==================== ЧИСТЫЙ НАДЕЖНЫЙ WEBRTC ЧЕРЕЗ SUPABASE REALTIME (БЕЗ PEERJS И БЕЗ CORS) ====================
 let realtimeChannel = null;
 
+// STUN серверы Google для прямого P2P соединения
+const rtcConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' }
+  ]
+};
+
 function initPeerConnection() {
-  // Закрываем старые соединения
-  if (peer && !peer.destroyed) {
-    peer.destroy();
-  }
-  if (realtimeChannel && supabaseClient) {
-    supabaseClient.removeChannel(realtimeChannel);
-  }
+  myPeerId = 'user_' + Math.random().toString(36).substring(2, 11);
+  console.log('⚡ Spark User ID:', myPeerId);
+  addSystemMessage(`Вы вошли в ${currentRoomId.toUpperCase()}`);
 
-  // Создаем Peer без привязки к проблемным ID — PeerJS сам генерирует идеальный ID
-  peer = new Peer({
-    debug: 1,
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun.cloudflare.com:3478' }
-      ]
-    }
-  });
-
-  peer.on('open', (assignedPeerId) => {
-    myPeerId = assignedPeerId;
-    console.log('⚡ Наш Peer ID выделен сервером:', myPeerId);
-    addSystemMessage(`Вы вошли в ${currentRoomId.toUpperCase()}`);
-
-    // Подключаемся к комнате в Supabase Realtime
-    setupSupabaseRealtime();
-  });
-
-  peer.on('call', (call) => {
-    console.log('Входящий медиазвонок от:', call.peer);
-    const streamToSend = getStreamToSend();
-    call.answer(streamToSend);
-
-    call.on('stream', (remoteStream) => {
-      handleRemoteStream(call.peer, remoteStream);
-    });
-
-    call.on('close', () => {
-      handlePeerDisconnect(call.peer);
-    });
-
-    if (!activePeers.has(call.peer)) {
-      activePeers.set(call.peer, { call, conn: null, username: 'Участник', avatar: '', stream: null });
-    } else {
-      activePeers.get(call.peer).call = call;
-    }
-  });
-
-  peer.on('connection', (conn) => {
-    setupDataConnection(conn);
-  });
-
-  peer.on('error', (err) => {
-    console.warn('PeerJS статус:', err.type);
-    if (err.type === 'peer-unavailable') {
-      console.log('Пир временно недоступен');
-    }
-  });
+  setupSupabaseRealtimeSignaling();
 }
 
-// Надежный сигналинг через Supabase: мгновенный обмен ID между всеми в комнате
-function setupSupabaseRealtime() {
-  if (!supabaseClient) {
-    announcePresence();
-    return;
+function setupSupabaseRealtimeSignaling() {
+  if (realtimeChannel && supabaseClient) {
+    try { supabaseClient.removeChannel(realtimeChannel); } catch (e) {}
   }
 
-  const channelName = `spark_room_${currentRoomId.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
-  realtimeChannel = supabaseClient.channel(channelName, {
+  const roomTopic = `spark_room_${currentRoomId.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+  realtimeChannel = supabaseClient.channel(roomTopic, {
     config: {
       presence: { key: myPeerId },
       broadcast: { self: false }
@@ -1101,216 +1053,185 @@ function setupSupabaseRealtime() {
   });
 
   realtimeChannel
+    .on('broadcast', { event: 'signal' }, async ({ payload }) => {
+      if (!payload || payload.target !== myPeerId) return;
+      handleIncomingSignal(payload);
+    })
+    .on('broadcast', { event: 'chat' }, ({ payload }) => {
+      if (!payload || payload.senderId === myPeerId) return;
+      const incomingMsg = { ...payload, isMine: false };
+      renderChatMessage(incomingMsg);
+      saveMessageToRoomHistory(currentRoomId, incomingMsg);
+
+      if (chatPanel.classList.contains('closed')) {
+        unreadCount++;
+        chatUnreadBadge.textContent = unreadCount;
+        chatUnreadBadge.style.display = 'inline-block';
+      }
+    })
+    .on('broadcast', { event: 'media-state' }, ({ payload }) => {
+      if (!payload || payload.senderId === myPeerId) return;
+      updateRemoteMediaUI(payload.senderId, payload);
+    })
     .on('presence', { event: 'sync' }, () => {
       const state = realtimeChannel.presenceState();
-      console.log('👥 Участники в комнате:', state);
-      
-      // Находим всех остальных участников и звоним им
+      console.log('👥 Участники онлайн в комнате:', state);
+
       Object.keys(state).forEach((peerId) => {
         if (peerId !== myPeerId && !activePeers.has(peerId)) {
-          console.log('Обнаружен участник, звоним:', peerId);
-          tryConnectToPeer(peerId);
+          if (myPeerId > peerId) {
+            console.log('Инициируем WebRTC звонок к:', peerId);
+            createPeerConnection(peerId, true);
+          }
         }
       });
+      updateUsersCount();
     })
     .on('presence', { event: 'leave' }, ({ key }) => {
-      console.log('Участник покинул комнату:', key);
+      console.log('Участник вышел:', key);
       handlePeerDisconnect(key);
-    })
-    .on('broadcast', { event: 'join-announce' }, ({ payload }) => {
-      if (payload && payload.peerId && payload.peerId !== myPeerId && !activePeers.has(payload.peerId)) {
-        tryConnectToPeer(payload.peerId);
-      }
     })
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-        // Оповещаем комнату о своем присутствии с актуальным Peer ID
         await realtimeChannel.track({
           peerId: myPeerId,
           username: currentUsername,
           avatar: currentAvatar,
-          onlineAt: new Date().toISOString()
+          joinedAt: Date.now()
         });
-
-        realtimeChannel.send({
-          type: 'broadcast',
-          event: 'join-announce',
-          payload: { peerId: myPeerId, username: currentUsername }
-        });
+        console.log('✅ Подключено к Realtime комнате');
       }
     });
 
-  // Локальный канал на всякий случай для соседних вкладок
   announcePresence();
 }
 
-function tryConnectToPeer(targetPeerId) {
-  if (targetPeerId === myPeerId || activePeers.has(targetPeerId)) return;
+function sendSignal(targetPeerId, type, data) {
+  if (realtimeChannel) {
+    realtimeChannel.send({
+      type: 'broadcast',
+      event: 'signal',
+      payload: {
+        senderId: myPeerId,
+        target: targetPeerId,
+        type,
+        data,
+        username: currentUsername,
+        avatar: currentAvatar
+      }
+    });
+  }
+}
 
-  console.log('Подключаемся к пиру:', targetPeerId);
-  const conn = peer.connect(targetPeerId, {
-    reliable: true,
-    metadata: { username: currentUsername, avatar: currentAvatar }
-  });
+function createPeerConnection(remotePeerId, isInitiator) {
+  if (activePeers.has(remotePeerId)) {
+    return activePeers.get(remotePeerId).pc;
+  }
 
-  setupDataConnection(conn);
+  const pc = new RTCPeerConnection(rtcConfig);
+  const peerObj = {
+    pc,
+    username: 'Участник',
+    avatar: '',
+    stream: null
+  };
+  activePeers.set(remotePeerId, peerObj);
 
   const streamToSend = getStreamToSend();
   if (streamToSend) {
-    const call = peer.call(targetPeerId, streamToSend, {
-      metadata: { username: currentUsername, avatar: currentAvatar }
+    streamToSend.getTracks().forEach(track => {
+      pc.addTrack(track, streamToSend);
     });
-
-    if (call) {
-      call.on('stream', (remoteStream) => {
-        handleRemoteStream(targetPeerId, remoteStream);
-      });
-
-      call.on('close', () => {
-        handlePeerDisconnect(targetPeerId);
-      });
-
-      activePeers.set(targetPeerId, { call, conn, username: 'Участник', avatar: '', stream: null });
-    }
   }
-}
 
-function setupDataConnection(conn) {
-  conn.on('open', () => {
-    const peerId = conn.peer;
-    const existing = activePeers.get(peerId) || {};
-    existing.conn = conn;
-    activePeers.set(peerId, existing);
+  pc.ontrack = (event) => {
+    console.log('Получен входящий медиапоток от:', remotePeerId);
+    const remoteStream = event.streams[0] || new MediaStream([event.track]);
+    peerObj.stream = remoteStream;
+    handleRemoteStream(remotePeerId, remoteStream);
+  };
 
-    // Отправляем профиль: ник, аватар, пароль (если подключается гость к хосту)
-    conn.send({
-      type: 'handshake',
-      username: currentUsername,
-      avatar: currentAvatar,
-      audio: isAudioEnabled,
-      video: isVideoEnabled,
-      screen: isScreenSharing,
-      isHost: isHost,
-      password: currentRoomPassword
-    });
-
-    const streamToSend = getStreamToSend();
-    if (!existing.call && streamToSend) {
-      const call = peer.call(peerId, streamToSend, {
-        metadata: { username: currentUsername, avatar: currentAvatar }
-      });
-      call.on('stream', (remoteStream) => {
-        handleRemoteStream(peerId, remoteStream);
-      });
-      existing.call = call;
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      sendSignal(remotePeerId, 'candidate', event.candidate);
     }
+  };
 
-    updateUsersCount();
-  });
+  pc.onconnectionstatechange = () => {
+    console.log(`Статус соединения с ${remotePeerId}:`, pc.connectionState);
+    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+      handlePeerDisconnect(remotePeerId);
+    }
+  };
 
-  conn.on('data', (data) => {
-    handleIncomingData(conn.peer, data);
-  });
-
-  conn.on('close', () => {
-    handlePeerDisconnect(conn.peer);
-  });
-}
-
-function handleIncomingData(senderId, data) {
-  if (!data) return;
-
-  if (data.type === 'handshake') {
-    // Если мы хост и у нас установлен пароль — сверяем
-    if (isHost && currentRoomPassword) {
-      if (data.password !== currentRoomPassword) {
-        connSend(senderId, { type: 'auth-failed', reason: 'Неверный пароль комнаты' });
-        setTimeout(() => {
-          handlePeerDisconnect(senderId);
-        }, 500);
-        return;
+  if (isInitiator) {
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal(remotePeerId, 'offer', offer);
+      } catch (err) {
+        console.error('Ошибка создания offer:', err);
       }
-    }
-
-    const peerInfo = activePeers.get(senderId) || {};
-    peerInfo.username = data.username || 'Участник';
-    peerInfo.avatar = data.avatar || '';
-    activePeers.set(senderId, peerInfo);
-
-    addSystemMessage(`${peerInfo.username} в сети`);
-    updatePeerCardInfo(senderId, peerInfo.username, peerInfo.avatar);
-    updateUsersCount();
-
-    activePeers.forEach((_, otherId) => {
-      if (otherId !== senderId && otherId !== myPeerId) {
-        connSend(senderId, { type: 'peer-hint', peerId: otherId });
-      }
-    });
-  } else if (data.type === 'auth-failed') {
-    showToast(data.reason || 'Ошибка авторизации');
-    setTimeout(() => {
-      if (peer) peer.destroy();
-      window.location.href = window.location.pathname;
-    }, 1500);
-  } else if (data.type === 'profile-update') {
-    const peerInfo = activePeers.get(senderId);
-    if (peerInfo) {
-      peerInfo.username = data.username || peerInfo.username;
-      peerInfo.avatar = data.avatar || peerInfo.avatar;
-      updatePeerCardInfo(senderId, peerInfo.username, peerInfo.avatar);
-    }
-  } else if (data.type === 'peer-hint') {
-    if (data.peerId && data.peerId !== myPeerId && !activePeers.has(data.peerId)) {
-      tryConnectToPeer(data.peerId);
-    }
-  } else if (data.type === 'chat') {
-    const peerInfo = activePeers.get(senderId);
-    if (peerInfo) {
-      peerInfo.username = data.username || peerInfo.username;
-      peerInfo.avatar = data.avatar || peerInfo.avatar;
-      updatePeerCardInfo(senderId, peerInfo.username, peerInfo.avatar);
-    }
-  } else if (data.type === 'peer-hint') {
-    if (data.peerId && data.peerId !== myPeerId && !activePeers.has(data.peerId)) {
-      tryConnectToPeer(data.peerId);
-    }
-  } else if (data.type === 'chat') {
-    const incomingMsg = {
-      sender: data.sender,
-      avatar: data.avatar,
-      text: data.text,
-      time: data.time,
-      isMine: false
     };
-    renderChatMessage(incomingMsg);
-    saveMessageToRoomHistory(currentRoomId, incomingMsg);
-
-    if (chatPanel.classList.contains('closed')) {
-      unreadCount++;
-      chatUnreadBadge.textContent = unreadCount;
-      chatUnreadBadge.style.display = 'inline-block';
-    }
-  } else if (data.type === 'media-state') {
-    updateRemoteMediaUI(senderId, data);
   }
+
+  return pc;
 }
 
-function connSend(targetPeerId, data) {
-  const p = activePeers.get(targetPeerId);
-  if (p && p.conn && p.conn.open) {
-    p.conn.send(data);
+async function handleIncomingSignal(payload) {
+  const { senderId, type, data, username, avatar } = payload;
+  let peerObj = activePeers.get(senderId);
+
+  if (!peerObj) {
+    createPeerConnection(senderId, false);
+    peerObj = activePeers.get(senderId);
+  }
+
+  if (username) peerObj.username = username;
+  if (avatar) peerObj.avatar = avatar;
+  updatePeerCardInfo(senderId, peerObj.username, peerObj.avatar);
+  updateUsersCount();
+
+  const pc = peerObj.pc;
+
+  try {
+    if (type === 'offer') {
+      console.log('Получен offer от:', senderId);
+      await pc.setRemoteDescription(new RTCSessionDescription(data));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendSignal(senderId, 'answer', answer);
+    } else if (type === 'answer') {
+      console.log('Получен answer от:', senderId);
+      await pc.setRemoteDescription(new RTCSessionDescription(data));
+    } else if (type === 'candidate' && data) {
+      await pc.addIceCandidate(new RTCIceCandidate(data));
+    }
+  } catch (err) {
+    console.warn('Ошибка обработки WebRTC сигнала:', err);
   }
 }
 
 function broadcastData(data) {
-  activePeers.forEach((peerObj) => {
-    if (peerObj.conn && peerObj.conn.open) {
-      peerObj.conn.send(data);
-    }
-  });
+  if (!realtimeChannel) return;
+  if (data.type === 'chat') {
+    realtimeChannel.send({
+      type: 'broadcast',
+      event: 'chat',
+      payload: { ...data, senderId: myPeerId }
+    });
+  } else if (data.type === 'media-state') {
+    realtimeChannel.send({
+      type: 'broadcast',
+      event: 'media-state',
+      payload: { ...data, senderId: myPeerId }
+    });
+  }
 }
 
 function announcePresence() {
+  // BroadcastChannel для соседних вкладок в одном браузере
   try {
     const channel = new BroadcastChannel(`spark_${currentRoomId}`);
     channel.postMessage({ type: 'hello', peerId: myPeerId, username: currentUsername });
@@ -1318,10 +1239,10 @@ function announcePresence() {
     channel.onmessage = (event) => {
       const { type, peerId } = event.data;
       if (type === 'hello' && peerId !== myPeerId && !activePeers.has(peerId)) {
-        tryConnectToPeer(peerId);
+        if (myPeerId > peerId) createPeerConnection(peerId, true);
         channel.postMessage({ type: 'welcome', peerId: myPeerId, username: currentUsername });
       } else if (type === 'welcome' && peerId !== myPeerId && !activePeers.has(peerId)) {
-        tryConnectToPeer(peerId);
+        if (myPeerId > peerId) createPeerConnection(peerId, true);
       }
     };
   } catch (e) {}
@@ -1332,7 +1253,7 @@ function announcePresence() {
 function handleRemoteStream(peerId, stream) {
   let peerInfo = activePeers.get(peerId);
   if (!peerInfo) {
-    peerInfo = { call: null, conn: null, username: 'Участник', avatar: '', stream };
+    peerInfo = { pc: null, username: 'Участник', avatar: '', stream };
     activePeers.set(peerId, peerInfo);
   } else {
     peerInfo.stream = stream;
@@ -1349,8 +1270,7 @@ function handlePeerDisconnect(peerId) {
   const info = activePeers.get(peerId);
   if (info) {
     addSystemMessage(`${info.username || 'Участник'} вышел`);
-    if (info.call) info.call.close();
-    if (info.conn) info.conn.close();
+    if (info.pc) { try { info.pc.close(); } catch (e) {} }
   }
   activePeers.delete(peerId);
   removeVideoCard(peerId);
@@ -1596,8 +1516,8 @@ function stopScreenShare() {
 
 function replaceVideoTrack(newTrack) {
   activePeers.forEach((peerObj) => {
-    if (peerObj.call && peerObj.call.peerConnection) {
-      const sender = peerObj.call.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+    if (peerObj.pc) {
+      const sender = peerObj.pc.getSenders().find(s => s.track && s.track.kind === 'video');
       if (sender) {
         sender.replaceTrack(newTrack);
       }
@@ -1624,7 +1544,12 @@ confirmLeaveBtn.addEventListener('click', async () => {
   if (isHost) {
     await dbDeactivateRoom(currentRoomId);
   }
-  if (peer) peer.destroy();
+  if (realtimeChannel && supabaseClient) {
+    try { supabaseClient.removeChannel(realtimeChannel); } catch (e) {}
+  }
+  activePeers.forEach((peerObj) => {
+    if (peerObj.pc) try { peerObj.pc.close(); } catch (e) {}
+  });
   window.location.href = window.location.pathname;
 });
 
