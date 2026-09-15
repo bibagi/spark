@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark — Общение и Звонки с друзьями</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+  <!-- Подключение бесплатного облачного PeerJS через CDN -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+  <!-- Эффект фонового свечения -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+
+  <!-- ЭКРАН ВХОДА / ЛОББИ -->
+  <div id="lobby-screen" class="screen active">
+    <div class="lobby-card">
+      <div class="brand">
+        <div class="logo-spark">
+          <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor">
+            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
+          </svg>
+        </div>
+        <h1>Spark</h1>
+      </div>
+      <p class="tagline">Место для живого общения, видеозвонков и шеринга ссылок с друзьями</p>
+
+      <form id="join-form" class="join-form">
+        <div class="input-group">
+          <label for="username-input">Ваше имя / никнейм</label>
+          <input type="text" id="username-input" placeholder="например, Alex" maxlength="25" required autocomplete="off" />
+        </div>
+
+        <div class="input-group">
+          <label for="room-input">ID комнаты</label>
+          <div class="room-input-row">
+            <input type="text" id="room-input" placeholder="Название комнаты" maxlength="30" required autocomplete="off" />
+            <button type="button" id="random-room-btn" class="btn btn-secondary" title="Сгенерировать случайную комнату">🎲</button>
+          </div>
+        </div>
+
+        <!-- Превью камеры перед входом -->
+        <div class="media-preview-container">
+          <video id="lobby-video-preview" autoplay playsinline muted></video>
+          <div class="preview-overlay" id="lobby-avatar-fallback">
+            <span id="lobby-avatar-letter">👤</span>
+          </div>
+          <div class="lobby-controls">
+            <button type="button" id="lobby-toggle-mic" class="circle-btn" title="Микрофон">
+              <svg class="icon-mic" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
+            </button>
+            <button type="button" id="lobby-toggle-cam" class="circle-btn" title="Камера">
+              <svg class="icon-cam" viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block">
+          <span>Войти в Spark</span>
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ЭКРАН КОМНАТЫ / ЗВОНКА -->
+  <div id="room-screen" class="screen">
+    <!-- Верхняя панель -->
+    <header class="top-bar">
+      <div class="brand-small">
+        <div class="logo-spark small">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+            <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" />
+          </svg>
+        </div>
+        <span class="brand-title">Spark</span>
+      </div>
+
+      <div class="room-info-pill">
+        <span class="live-dot"></span>
+        <span class="room-name" id="current-room-name">Комната</span>
+        <button id="copy-link-btn" class="pill-btn" title="Скопировать ссылку приглашения">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span id="copy-btn-text">Копировать ссылку</span>
+        </button>
+      </div>
+
+      <div class="top-actions">
+        <button id="toggle-chat-panel-btn" class="icon-btn active" title="Открыть/закрыть чат">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+          <span class="badge" id="chat-unread-badge" style="display: none;">0</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Основное пространство звонка + чат -->
+    <main class="main-room-layout">
+      <!-- Сетка видео/участников -->
+      <section class="video-stage">
+        <div id="video-grid" class="video-grid single-user">
+          <!-- Локальный пользователь -->
+          <div class="video-card local" id="local-video-card">
+            <video id="local-video" autoplay playsinline muted></video>
+            <div class="avatar-fallback" id="local-avatar-fallback">
+              <span id="local-avatar-letter">Me</span>
+            </div>
+            <div class="participant-badge">
+              <span id="local-participant-name">Вы</span>
+              <div class="participant-indicators">
+                <span class="indicator mic-off" id="local-mic-indicator" style="display: none;">🔇</span>
+              </div>
+            </div>
+          </div>
+          <!-- Динамически добавляемые удаленные карточки -->
+        </div>
+
+        <!-- Всплывающие эмодзи-реакции -->
+        <div id="reactions-container" class="reactions-floating"></div>
+      </section>
+
+      <!-- Боковая панель чата -->
+      <aside class="chat-panel" id="chat-panel">
+        <div class="chat-header">
+          <h3>Чат комнаты</h3>
+          <span class="chat-users-count" id="users-count-label">1 участник</span>
+        </div>
+
+        <!-- Список сообщений -->
+        <div class="chat-messages" id="chat-messages">
+          <!-- Сообщения добавляются JS -->
+        </div>
+
+        <!-- Превью быстрых реакций -->
+        <div class="reactions-bar">
+          <button class="reaction-btn" data-emoji="🔥">🔥</button>
+          <button class="reaction-btn" data-emoji="👏">👏</button>
+          <button class="reaction-btn" data-emoji="😂">😂</button>
+          <button class="reaction-btn" data-emoji="❤️">❤️</button>
+          <button class="reaction-btn" data-emoji="🚀">🚀</button>
+          <button class="reaction-btn" data-emoji="👀">👀</button>
+        </div>
+
+        <!-- Поле ввода сообщений с поддержкой ссылок -->
+        <form id="chat-form" class="chat-form">
+          <input type="text" id="chat-input" placeholder="Напишите сообщение или вставьте ссылку..." autocomplete="off" />
+          <button type="submit" class="chat-send-btn" title="Отправить">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </form>
+      </aside>
+    </main>
+
+    <!-- Нижняя панель управления звонком -->
+    <footer class="call-controls-dock">
+      <div class="controls-group">
+        <button id="toggle-mic-btn" class="control-btn" title="Вкл/Выкл Микрофон">
+          <svg class="icon-mic" viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>
+          <span>Микрофон</span>
+        </button>
+
+        <button id="toggle-cam-btn" class="control-btn" title="Вкл/Выкл Камеру">
+          <svg class="icon-cam" viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+          <span>Камера</span>
+        </button>
+
+        <button id="toggle-screen-btn" class="control-btn" title="Поделиться экраном">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
+          <span>Экран</span>
+        </button>
+
+        <button id="leave-room-btn" class="control-btn danger" title="Покинуть звонок">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.996.996 0 0 1 0-1.41C2.5 9.4 6.94 8 12 8s9.5 1.4 11.71 3.67c.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+          <span>Выйти</span>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
