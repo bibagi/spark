@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Spark</title>
+  <link rel="icon" type="image/png" href="logo.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -11,74 +12,116 @@
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
+  <!-- Контейнер для кастомных тостов/ошибок -->
+  <div id="toast-container" class="toast-container"></div>
+
   <!-- ЭКРАН ВХОДА / ЛОББИ -->
   <div id="lobby-screen" class="screen active">
-    <div class="lobby-card">
-      <div class="brand">
-        <div class="logo-spark">
-          <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-        </div>
-        <h1>Spark</h1>
-      </div>
-      <p class="tagline"></p>
-
-      <form id="join-form" class="join-form">
-        <div class="input-group">
-          <label for="username-input">Имя или никнейм</label>
-          <input type="text" id="username-input" placeholder="Введите имя" maxlength="25" required autocomplete="off" />
+    <div class="lobby-container">
+      <!-- Карточка входа -->
+      <div class="lobby-card">
+        <div class="brand">
+          <img src="logo.png" alt="Spark Logo" class="brand-logo-img" />
+          <h1 class="brand-name">Spark</h1>
         </div>
 
-        <div class="input-group">
-          <label for="room-input">Комната</label>
-          <div class="room-input-row">
-            <input type="text" id="room-input" placeholder="Название комнаты" maxlength="30" required autocomplete="off" />
-            <button type="button" id="random-room-btn" class="btn btn-secondary" title="Сгенерировать случайное название">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"></circle>
-                <circle cx="15.5" cy="15.5" r="1.5" fill="currentColor"></circle>
-              </svg>
-            </button>
+        <!-- Скрытый инпут файла для аватара -->
+        <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" />
+
+        <!-- Форма без стандартной браузерной валидации novalidate -->
+        <form id="join-form" class="join-form" novalidate>
+          <div class="input-wrapper" id="username-wrapper">
+            <label for="username-input">Имя или никнейм</label>
+            <div class="username-input-row">
+              <input type="text" id="username-input" placeholder="Введите имя" maxlength="25" autocomplete="off" />
+              <div class="avatar-field-circle" id="avatar-preview-btn" title="Нажмите, чтобы сменить аватар">
+                <svg id="avatar-placeholder-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <img id="avatar-preview-img" src="" alt="Avatar" style="display: none;" />
+              </div>
+            </div>
+            <div class="field-error-msg" id="username-error">Введите имя или никнейм</div>
           </div>
-        </div>
 
-        <!-- Превью камеры в лобби -->
-        <div class="media-preview-container">
-          <video id="lobby-video-preview" autoplay playsinline muted></video>
-          <div class="preview-overlay" id="lobby-avatar-fallback">
-            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-              <circle cx="12" cy="7" r="4"></circle>
+          <div class="input-wrapper" id="room-wrapper">
+            <label for="room-input">Комната</label>
+            <div class="room-input-row">
+              <input type="text" id="room-input" placeholder="Название комнаты" maxlength="30" autocomplete="off" />
+              <button type="button" id="random-room-btn" class="btn btn-secondary" title="Сгенерировать случайное название">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"></circle>
+                  <circle cx="15.5" cy="15.5" r="1.5" fill="currentColor"></circle>
+                </svg>
+              </button>
+            </div>
+            <div class="field-error-msg" id="room-error">Укажите название комнаты</div>
+          </div>
+
+          <!-- Превью камеры в лобби -->
+          <div class="media-preview-container">
+            <video id="lobby-video-preview" autoplay playsinline muted></video>
+            <div class="preview-overlay" id="lobby-avatar-fallback">
+              <img id="lobby-avatar-img" src="" alt="Avatar" style="display: none;" />
+              <svg id="lobby-avatar-icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </div>
+            <div class="lobby-controls">
+              <button type="button" id="lobby-toggle-mic" class="circle-btn" title="Микрофон">
+                <svg class="icon-mic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+              </button>
+              <button type="button" id="lobby-toggle-cam" class="circle-btn" title="Камера">
+                <svg class="icon-cam" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="3" ry="3"></rect>
+                </svg>
+              </button>
+              <button type="button" id="lobby-open-settings-btn" class="circle-btn" title="Настройки устройств">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">
+            <span>Присоединиться</span>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+              <polyline points="12 5 19 12 12 19"></polyline>
             </svg>
-          </div>
-          <div class="lobby-controls">
-            <button type="button" id="lobby-toggle-mic" class="circle-btn" title="Микрофон">
-              <svg class="icon-mic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                <line x1="12" y1="19" x2="12" y2="23"></line>
-                <line x1="8" y1="23" x2="16" y2="23"></line>
-              </svg>
-            </button>
-            <button type="button" id="lobby-toggle-cam" class="circle-btn" title="Камера">
-              <svg class="icon-cam" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="23 7 16 12 23 17 23 7"></polygon>
-                <rect x="1" y="5" width="15" height="14" rx="3" ry="3"></rect>
-              </svg>
-            </button>
-          </div>
-        </div>
+          </button>
+        </form>
+      </div>
 
-        <button type="submit" class="btn btn-primary btn-block">
-          <span>Присоединиться</span>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-            <polyline points="12 5 19 12 12 19"></polyline>
-          </svg>
-        </button>
-      </form>
+      <!-- Карточка истории комнат такого же размера -->
+      <div class="lobby-card history-card">
+        <div class="history-header">
+          <div class="history-title-row">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 14 14"></polyline>
+            </svg>
+            <h2>История комнат</h2>
+          </div>
+          <button type="button" id="clear-history-btn" class="pill-btn-small" title="Очистить историю">Очистить</button>
+        </div>
+        <p class="history-subtitle"></p>
+
+        <div class="history-list" id="history-list">
+          <div class="history-empty">История комнат пока пуста</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -87,11 +130,7 @@
     <!-- Верхняя панель -->
     <header class="top-bar">
       <div class="brand-small">
-        <div class="logo-spark small">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-          </svg>
-        </div>
+        <img src="logo.png" alt="Spark Logo" class="brand-logo-img small" />
         <span class="brand-title">Spark</span>
       </div>
 
@@ -108,6 +147,13 @@
       </div>
 
       <div class="top-actions">
+        <button id="room-settings-btn" class="icon-btn" title="Настройки устройств">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+
         <button id="toggle-chat-panel-btn" class="icon-btn active" title="Чат">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -117,18 +163,21 @@
       </div>
     </header>
 
-    <!-- Основное пространство звонка + чат -->
+    <!-- Главная область звонка -->
     <main class="main-room-layout">
-      <!-- Сетка видео/участников -->
       <section class="video-stage">
         <div id="video-grid" class="video-grid single-user">
           <!-- Локальный пользователь -->
           <div class="video-card local" id="local-video-card">
             <video id="local-video" autoplay playsinline muted></video>
             <div class="avatar-fallback" id="local-avatar-fallback">
-              <span id="local-avatar-letter">Me</span>
+              <img id="local-avatar-img-room" src="" alt="Avatar" style="display: none;" />
+              <span class="initials" id="local-avatar-letter">ME</span>
             </div>
             <div class="participant-badge">
+              <div class="speaking-waves">
+                <span></span><span></span><span></span>
+              </div>
               <span id="local-participant-name">Вы</span>
               <div class="participant-indicators">
                 <span class="indicator mic-off" id="local-mic-indicator" style="display: none;">
@@ -144,20 +193,16 @@
             </div>
           </div>
         </div>
-
-        <div id="reactions-container" class="reactions-floating"></div>
       </section>
 
-      <!-- Панель чата -->
+      <!-- Чат -->
       <aside class="chat-panel" id="chat-panel">
         <div class="chat-header">
           <h3>Чат</h3>
           <span class="chat-users-count" id="users-count-label">1 участник</span>
         </div>
 
-        <div class="chat-messages" id="chat-messages">
-          <!-- Сообщения -->
-        </div>
+        <div class="chat-messages" id="chat-messages"></div>
 
         <form id="chat-form" class="chat-form">
           <input type="text" id="chat-input" placeholder="Сообщение или ссылка..." autocomplete="off" />
@@ -171,7 +216,7 @@
       </aside>
     </main>
 
-    <!-- Нижняя панель управления звонком -->
+    <!-- Нижняя панель звонка -->
     <footer class="call-controls-dock">
       <div class="controls-group">
         <button id="toggle-mic-btn" class="control-btn" title="Микрофон">
@@ -211,6 +256,77 @@
         </button>
       </div>
     </footer>
+  </div>
+
+  <!-- МОДАЛЬНОЕ ОКНО ВЫБОРА УСТРОЙСТВ (ВВОД/ВЫВОД) -->
+  <div class="modal-overlay" id="device-settings-modal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>Устройства и звук</h3>
+        <button type="button" class="modal-close-btn" id="modal-close-btn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="device-select-group">
+        <label for="mic-select">Микрофон (ввод звука)</label>
+        <select id="mic-select" class="custom-select"></select>
+        <div class="mic-test-bar-container">
+          <div class="mic-test-bar-fill" id="mic-test-bar-fill"></div>
+        </div>
+      </div>
+
+      <div class="device-select-group">
+        <div class="slider-label-row">
+          <label for="mic-gain-slider">Усиление своего микрофона</label>
+          <span class="slider-val" id="mic-gain-val">100%</span>
+        </div>
+        <input type="range" id="mic-gain-slider" min="0" max="300" value="100" class="custom-range" />
+      </div>
+
+      <div class="device-select-group">
+        <label for="camera-select">Камера (видео)</label>
+        <select id="camera-select" class="custom-select"></select>
+      </div>
+
+      <div class="device-select-group" id="speaker-group">
+        <label for="speaker-select">Динамики / Наушники (вывод звука)</label>
+        <select id="speaker-select" class="custom-select"></select>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-block" id="modal-save-btn">Сохранить</button>
+    </div>
+  </div>
+
+  <!-- КАСТОМНОЕ МОДАЛЬНОЕ ОКНО ПОДТВЕРЖДЕНИЯ ВЫХОДА ИЗ ЗВОНКА -->
+  <div class="modal-overlay" id="leave-confirm-modal">
+    <div class="modal-dialog leave-dialog">
+      <div class="leave-dialog-content">
+        <h3>Покинуть звонок?</h3>
+        <p>Вы будете отключены от текущей комнаты</p>
+      </div>
+      <div class="leave-dialog-actions">
+        <button type="button" class="btn btn-secondary" id="cancel-leave-btn">Отмена</button>
+        <button type="button" class="btn btn-primary" id="confirm-leave-btn">Выйти</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- КАСТОМНОЕ МОДАЛЬНОЕ ОКНО ОЧИСТКИ ИСТОРИИ -->
+  <div class="modal-overlay" id="clear-history-modal">
+    <div class="modal-dialog leave-dialog">
+      <div class="leave-dialog-content">
+        <h3>Очистить историю?</h3>
+        <p>Вся сохраненная история посещенных комнат и сообщения будут удалены</p>
+      </div>
+      <div class="leave-dialog-actions">
+        <button type="button" class="btn btn-secondary" id="cancel-clear-history-btn">Отмена</button>
+        <button type="button" class="btn btn-primary" id="confirm-clear-history-btn">Очистить</button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>
