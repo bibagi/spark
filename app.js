@@ -3,11 +3,11 @@
 const SUPABASE_URL = 'https://dgkpcynowgewoqvtbmkb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRna3BjeW5vd2dld29xdnRibWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk0NzA4NzMsImV4cCI6MjEwNTA0Njg3M30.2yJ8-0NCbAv7sMFb3phXFsMVkb8FH7YEzWZtmQ2z1ww';
 
-// Инициализация Supabase клиента (с fallback на mesh/peerjs, если ключи еще не заменены)
-let supabase = null;
+// Инициализация Supabase клиента (используем имя supabaseClient, чтобы не конфликтовать с глобальным window.supabase из CDN)
+let supabaseClient = null;
 try {
   if (window.supabase && SUPABASE_URL && !SUPABASE_ANON_KEY.includes('demo_key')) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     console.log('✅ Supabase успешно подключен');
   }
 } catch (e) {
@@ -257,9 +257,9 @@ tabJoinBtn.addEventListener('click', () => switchTab('join'));
 
 // Регистрация комнаты в базе данных
 async function dbRegisterRoom(code, name, hasPassword, hostUser) {
-  if (!supabase) return;
+  if (!supabaseClient) return;
   try {
-    await supabase.from('spark_rooms').upsert({
+    await supabaseClient.from('spark_rooms').upsert({
       code: code.toUpperCase(),
       name: name,
       has_password: Boolean(hasPassword),
@@ -275,13 +275,13 @@ async function dbRegisterRoom(code, name, hasPassword, hostUser) {
 
 // Проверка существования комнаты и пароля в базе
 async function dbValidateRoom(code, enteredPassword) {
-  if (!supabase) {
+  if (!supabaseClient) {
     // В режиме без БД (fallback) возвращаем true
     return { valid: true };
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('spark_rooms')
       .select('*')
       .eq('code', code.toUpperCase())
@@ -308,7 +308,7 @@ async function dbValidateRoom(code, enteredPassword) {
 async function fetchOnlineRooms() {
   if (!activeRoomsList) return;
 
-  if (!supabase) {
+  if (!supabaseClient) {
     activeRoomsList.innerHTML = `
       <div class="history-item" style="cursor: default; opacity: 0.85;">
         <div class="history-item-info">
@@ -321,7 +321,7 @@ async function fetchOnlineRooms() {
   }
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('spark_rooms')
       .select('*')
       .eq('active', true)
@@ -375,9 +375,9 @@ if (refreshRoomsBtn) {
 
 // Удаление / деактивация комнаты при выходе хоста
 async function dbDeactivateRoom(code) {
-  if (!supabase || !isHost) return;
+  if (!supabaseClient || !isHost) return;
   try {
-    await supabase.from('spark_rooms').update({ active: false }).eq('code', code.toUpperCase());
+    await supabaseClient.from('spark_rooms').update({ active: false }).eq('code', code.toUpperCase());
   } catch (e) {}
 }
 
